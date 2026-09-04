@@ -1,0 +1,9 @@
+# Symlinks to read-only reference checkouts outside the repo; local convenience only.
+# Neither is a build dependency. Recreate them with the commands in CLAUDE.md.
+/reference
+
+# Personal Claude Code settings; the shared ones live in .claude/settings.json.
+.claude/settings.local.json
+
+node_modules
+dist

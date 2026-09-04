@@ -1,0 +1,76 @@
+{
+  "name": "kleros-disputant-cli",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Headless CLI for creating Kleros v2 disputes and submitting evidence on Arbitrum One",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jaybuidl/kleros-disputant-cli.git"
+  },
+  "homepage": "https://github.com/jaybuidl/kleros-disputant-cli#readme",
+  "bugs": "https://github.com/jaybuidl/kleros-disputant-cli/issues",
+  "keywords": [
+    "kleros",
+    "arbitration",
+    "dispute-resolution",
+    "dispute",
+    "evidence",
+    "arbitrum",
+    "ethereum",
+    "cli",
+    "agent"
+  ],
+  "bin": {
+    "kleros-disputant": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "skills/kleros-disputant/SKILL.md",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsup",
+    "prepack": "pnpm build",
+    "prepublishOnly": "pnpm typecheck && pnpm lint && pnpm test",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "biome check .",
+    "format": "biome format . --write",
+    "typecheck": "tsc --noEmit",
+    "test:fork": "anvil --fork-url ${ARBITRUM_RPC:-$(mesc url arbitrum_alchemy 2>/dev/null || echo https://arb1.arbitrum.io/rpc)} --port 8546 --silent & ANVIL=$!; until cast chain-id --rpc-url http://127.0.0.1:8546 >/dev/null 2>&1; do kill -0 $ANVIL 2>/dev/null || { echo 'anvil exited before it was reachable' >&2; exit 1; }; sleep 0.25; done; vitest run src/__tests__/fork.test.ts; STATUS=$?; kill $ANVIL; exit $STATUS",
+    "test:acceptance": "KLEROS_ARCHIVE_RPC=${KLEROS_ARCHIVE_RPC:-$(mesc url arbitrum_alchemy 2>/dev/null)} vitest run src/__tests__/acceptance.fork.test.ts"
+  },
+  "dependencies": {
+    "incur": "~0.4.19",
+    "viem": "^2.55.19"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.9",
+    "@kleros/kleros-v2-contracts": "^2.0.0-rc.2",
+    "@types/node": "^22.20.1",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.12",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.11"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ],
+    "ignoredBuiltDependencies": [
+      "@arbitrum/nitro-contracts"
+    ]
+  },
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  }
+}

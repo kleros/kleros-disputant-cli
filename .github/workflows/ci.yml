@@ -1,0 +1,25 @@
+# The juror CLI shipped with `prepublishOnly` as its only gate. This tool spends
+# money on every `create-dispute`, so the gate runs on every push instead.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      # Fork and acceptance suites self-skip here: no Arbitrum One fork, no
+      # archive RPC. That is visible in the run output, never silently green.
+      - run: pnpm test
