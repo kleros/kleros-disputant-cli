@@ -215,12 +215,9 @@ The five canonical triage roles, each label string equal to its name. See `docs/
 
 ## Process
 
-- **Never run `git commit`.** Commits are GPG-signed and JB runs them interactively with `!`.
-  Prepare the change, then say it is ready. Never disable signing.
 - Conventional prefixes (`feat` / `fix` / `docs` / `chore` / `test` / `build`), imperative subject,
   lowercase after the colon, no trailing period. Bodies are essays: what was verified live, which
-  requirement is closed, which ADR is overridden and why, costs accepted, who verified it. Every
-  commit ends with `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
+  requirement is closed, which ADR is overridden and why, costs accepted, who verified it.
 - Documentation before code. Steps 1–5 of the build order are entirely documents and guards, and
   the vocabulary guard goes in **early** — in the juror repo it landed at commit 19 of 24 and
   immediately found drift across three separate surfaces.
