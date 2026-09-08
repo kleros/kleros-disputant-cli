@@ -16,7 +16,7 @@ writing domain logic and cite it by section (`spec/01 §4.4`). It **supersedes
 `HANDOFF_DISPUTANT_CLI.md` §14**, and `spec/appendix-a §3` lists every disagreement, because each
 one is a claim someone already believed.
 
-Status: bootstrapping. Documentation, spec and guards only — no domain logic, no commands, no
+Status: bootstrapping. The pure functional core exists in `src/core/`; still no commands, no
 `README.md`, nothing published to npm, no transaction ever broadcast. Build order: `HANDOFF §10`.
 
 ```
