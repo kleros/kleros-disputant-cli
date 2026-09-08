@@ -55,15 +55,56 @@ export function checkCostCeiling({
     );
   }
 
-  const warnings: string[] = [];
-  if (quotedWei >= LARGE_QUOTE_WEI) {
-    warnings.push(
-      `The arbitration cost is ${eth} ETH, which is large for this deployment. It is paid on ` +
-        "creation and cannot be recovered.",
+  return ok({ wei: quotedWei, eth, warnings: quoteWarnings(quotedWei) });
+}
+
+/**
+ * The magnitude advisory on its own, for `arbitration-cost`, which has no
+ * ceiling to enforce — it quotes and stops, so there is nothing for a refusal to
+ * protect. The advisory still applies: a large number is worth a second look
+ * whether or not this invocation could have spent it.
+ *
+ * It **MUST** reach `warnings` and MUST NOT replace the value (`spec/02 §2`).
+ */
+export function quoteWarnings(quotedWei: bigint): string[] {
+  if (quotedWei < LARGE_QUOTE_WEI) return [];
+  return [
+    `The arbitration cost is ${formatWeiAsEth(quotedWei)} ETH, which is large for this ` +
+      "deployment. It is paid on creation and cannot be recovered.",
+  ];
+}
+
+/**
+ * `balance < value`, before anything is simulated.
+ *
+ * A lower bound, and the only part of affordability that is knowable without a
+ * gas estimate — which is what makes it usable *before* `simulateContract`
+ * rather than after. That ordering is the point, not the arithmetic:
+ * **[live]** the Arbitrum One public endpoint enforces balance inside
+ * `eth_call`, so an unfunded account fails simulation and comes back as
+ * `SIMULATION_REVERTED` — exit 3, "the transaction reverted" — when the true
+ * answer is "the account cannot pay", exit 1. A consuming agent branches on the
+ * code, and those two codes call for different actions.
+ *
+ * `checkBalance` still runs afterwards and is not redundant: it is the one that
+ * includes gas, and it is the one `spec/04 §2` names.
+ */
+export function checkValueAffordable({
+  balanceWei,
+  valueWei,
+}: {
+  balanceWei: bigint;
+  valueWei: bigint;
+}): KlerosResult<{ balanceWei: bigint }> {
+  if (balanceWei < valueWei) {
+    return err(
+      "INSUFFICIENT_BALANCE",
+      `The account holds ${formatWeiAsEth(balanceWei)} ETH and the arbitration fee alone is ` +
+        `${formatWeiAsEth(valueWei)} ETH, before any gas. Nothing was sent.`,
+      { balanceWei: balanceWei.toString(), valueWei: valueWei.toString() },
     );
   }
-
-  return ok({ wei: quotedWei, eth, warnings });
+  return ok({ balanceWei });
 }
 
 /**

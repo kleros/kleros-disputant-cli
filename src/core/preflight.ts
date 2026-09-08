@@ -20,11 +20,24 @@ import { err, type KlerosResult, ok } from "./result.js";
  * Fail closed. A fact that was not read is a refusal, never a pass.
  */
 
-/** What the operator asked for, already parsed. `spec/03 §3.2`. */
-export type RequestedDispute = {
+/**
+ * The three `extraData` words the operator asked for, already parsed.
+ * `spec/03 §3.2`.
+ *
+ * Split out from `RequestedDispute` because `arbitration-cost` quotes without a
+ * template and so has no ruling-option count to check — and quoting is not
+ * exempt from any of the other five checks. A quote for court 99 comes back as
+ * the General Court's price, silently (`spec/01 §4.4`), so a command that
+ * skipped them would report a number for a court the operator did not name.
+ */
+export type RequestedExtraData = {
   courtID: bigint;
   jurors: bigint;
   disputeKitID: bigint;
+};
+
+/** What the operator asked for, already parsed. `spec/03 §3.2`. */
+export type RequestedDispute = RequestedExtraData & {
   /**
    * Derived from the template's own `answers` array, never accepted as an
    * option — the two cannot disagree (`spec/02 §1.1`). Re-checked here because
@@ -63,16 +76,17 @@ export type ChainFacts = {
   kitSupported: boolean | undefined;
 };
 
+export type ExtraDataFacts = {
+  requested: RequestedExtraData;
+  chain: ChainFacts;
+};
+
 export type PreflightFacts = {
   requested: RequestedDispute;
   chain: ChainFacts;
 };
 
-export type PreflightResult = {
-  courtID: bigint;
-  jurors: bigint;
-  disputeKitID: bigint;
-  numberOfRulingOptions: bigint;
+export type ExtraDataResult = RequestedExtraData & {
   /**
    * Built here and nowhere else. The blob only exists once its three words have
    * been validated, so there is no unvalidated blob for a later step to pick up
@@ -82,6 +96,8 @@ export type PreflightResult = {
   extraData: Hex;
 };
 
+export type PreflightResult = ExtraDataResult & { numberOfRulingOptions: bigint };
+
 /** `kleros`, the peer read-plane CLI — verified against agentkit's own command tree. */
 const COURT_LIST_HINT = "kleros court list --chain arbitrum-one";
 
@@ -90,11 +106,11 @@ const COURT_LIST_HINT = "kleros court list --chain arbitrum-one";
  * reported as an out-of-range court, never as an unsupported kit. The order
  * follows `spec/02 §1.1`'s table top to bottom, and `spec/05 §1.2` asserts it.
  */
-export function checkPreflight({
+export function checkExtraData({
   requested,
   chain,
-}: PreflightFacts): KlerosResult<PreflightResult> {
-  const { courtID, jurors, disputeKitID, numberOfRulingOptions } = requested;
+}: ExtraDataFacts): KlerosResult<ExtraDataResult> {
+  const { courtID, jurors, disputeKitID } = requested;
 
   // 1. Court in range. Court 0 is the Forking Court: it does not revert and
   //    reads all-zero, and the decoder maps it to General alongside any
@@ -186,10 +202,33 @@ export function checkPreflight({
     );
   }
 
+  return ok({
+    courtID,
+    jurors,
+    disputeKitID,
+    extraData: encodeExtraData({ courtID, jurors, disputeKitID }),
+  });
+}
+
+/**
+ * `checkExtraData`, then the one check that belongs to dispute creation alone.
+ *
+ * The refusal order is unchanged by the split: the ruling-option check was
+ * always last, because it is an assertion over a value this tool derived rather
+ * than a check on something the operator typed.
+ */
+export function checkPreflight({
+  requested,
+  chain,
+}: PreflightFacts): KlerosResult<PreflightResult> {
+  const words = checkExtraData({ requested, chain });
+  if (!words.success) return words;
+
   // 6. Ruling options. Derived from the template, so this is an assertion over a
   //    value built elsewhere rather than a check on operator input. The contract
   //    refuses fewer than two with a reason string; it does **not** check that
   //    the count matches the template (`spec/02 §1.1`).
+  const { numberOfRulingOptions } = requested;
   if (numberOfRulingOptions < 2n) {
     return err(
       "RULING_OPTIONS_INVALID",
@@ -199,13 +238,82 @@ export function checkPreflight({
     );
   }
 
-  return ok({
-    courtID,
-    jurors,
-    disputeKitID,
-    numberOfRulingOptions,
-    extraData: encodeExtraData({ courtID, jurors, disputeKitID }),
-  });
+  return ok({ ...words.data, numberOfRulingOptions });
+}
+
+/* ------------------------------------------------------------------------- *
+ * After the send — `spec/02 §1.2`.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * What the dispute that now exists actually says about itself, with no
+ * judgement applied. Read back from chain state, never echoed from the inputs
+ * (`spec/05 §5` criterion 8).
+ */
+export type EffectiveDispute = {
+  coreDisputeID: bigint;
+  /** `disputes(coreDisputeID).courtID`. */
+  courtID: bigint;
+  /** `getRoundInfo(coreDisputeID, 0).nbVotes` — the juror count the core recorded. */
+  jurors: bigint;
+  /** `getRoundInfo(coreDisputeID, 0).disputeKitID`. */
+  disputeKitID: bigint;
+};
+
+/**
+ * The only check on the one failure pre-flight cannot prevent.
+ *
+ * `KlerosCore` decodes `_arbitratorExtraData` with bounds checks that substitute
+ * defaults rather than revert (`spec/01 §4.4`), so a dispute can be created,
+ * paid for and mined in a court nobody asked for. `checkExtraData` is what stops
+ * that happening; this is what notices if it did anyway — a governance change to
+ * the court set between the read and the send, or a decoder that no longer
+ * behaves as `spec/01` describes.
+ *
+ * A difference is an **error, not a warning** (`spec/02 §1.2`): the money is
+ * already spent, and a warning invites a consumer to treat the dispute as the
+ * one it asked for.
+ */
+export function checkEffective({
+  requested,
+  effective,
+}: {
+  requested: RequestedExtraData;
+  effective: EffectiveDispute;
+}): KlerosResult<EffectiveDispute> {
+  const differences = (
+    [
+      ["court", requested.courtID, effective.courtID],
+      ["juror count", requested.jurors, effective.jurors],
+      ["dispute kit", requested.disputeKitID, effective.disputeKitID],
+    ] as const
+  ).filter(([, asked, got]) => asked !== got);
+
+  if (differences.length > 0) {
+    return err(
+      "EFFECTIVE_MISMATCH",
+      `Dispute ${effective.coreDisputeID} was created, paid for and mined, but it is not the ` +
+        `dispute that was requested: ${differences
+          .map(([label, asked, got]) => `${label} ${got} was recorded, ${asked} was requested`)
+          .join("; ")}. The arbitration fee is spent and this cannot be undone. Do not create a ` +
+        "replacement without deciding what to do with this one.",
+      {
+        coreDisputeID: effective.coreDisputeID.toString(),
+        requested: {
+          court: requested.courtID.toString(),
+          jurors: requested.jurors.toString(),
+          disputeKit: requested.disputeKitID.toString(),
+        },
+        effective: {
+          court: effective.courtID.toString(),
+          jurors: effective.jurors.toString(),
+          disputeKit: effective.disputeKitID.toString(),
+        },
+      },
+    );
+  }
+
+  return ok(effective);
 }
 
 /* ------------------------------------------------------------------------- *

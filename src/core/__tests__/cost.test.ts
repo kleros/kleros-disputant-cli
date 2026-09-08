@@ -1,6 +1,6 @@
 import { parseEther } from "viem";
 import { describe, expect, it } from "vitest";
-import { checkBalance, checkCostCeiling, LARGE_QUOTE_WEI } from "../cost.js";
+import { checkBalance, checkCostCeiling, checkValueAffordable, LARGE_QUOTE_WEI } from "../cost.js";
 import { EXTRA_DATA_VECTORS } from "./vectors.js";
 
 /** `spec/05 §1.5`. */
@@ -90,5 +90,42 @@ describe("the balance check", () => {
     const result = checkBalance({ balanceWei: 0n, estimatedFeeWei, valueWei });
     if (result.success) throw new Error("expected a refusal");
     expect(result.message).toContain("0.015");
+  });
+});
+
+/**
+ * The refusal that has to happen **before** `simulateContract`, because the
+ * ordering is what decides which code a consuming agent sees — `cost.ts`.
+ */
+describe("checkValueAffordable", () => {
+  const valueWei = parseEther("0.015");
+
+  it("refuses when the fee alone is out of reach, with no gas figure to hand", () => {
+    const result = checkValueAffordable({ balanceWei: 0n, valueWei });
+    if (result.success) throw new Error("expected a refusal");
+    expect(result.code).toBe("INSUFFICIENT_BALANCE");
+    expect(result.message).toContain("0.015");
+    // It must not imply a gas number it has not estimated.
+    expect(result.message).toContain("before any gas");
+  });
+
+  it("accepts a balance exactly equal to the fee, leaving gas to the full check", () => {
+    const result = checkValueAffordable({ balanceWei: valueWei, valueWei });
+    expect(result.success).toBe(true);
+  });
+
+  /**
+   * It is a lower bound, deliberately: it passes a balance that cannot cover the
+   * gas, and `checkBalance` is what catches that once there is an estimate.
+   */
+  it("does not pretend to be the whole affordability check", () => {
+    const result = checkValueAffordable({ balanceWei: valueWei, valueWei });
+    expect(result.success).toBe(true);
+    const full = checkBalance({
+      balanceWei: valueWei,
+      estimatedFeeWei: parseEther("0.0001"),
+      valueWei,
+    });
+    expect(full.success).toBe(false);
   });
 });

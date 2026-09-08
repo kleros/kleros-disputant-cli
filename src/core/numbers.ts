@@ -1,4 +1,4 @@
-import { formatEther, parseEther } from "viem";
+import { formatEther, parseEther, parseGwei } from "viem";
 import { err, type KlerosResult, ok } from "./result.js";
 
 /**
@@ -19,6 +19,9 @@ const DECIMAL_AMOUNT = /^\d+(?:\.\d+)?$/;
 
 /** Wei has 18 decimal places; `parseEther` truncates a 19th silently. */
 const WEI_DECIMALS = 18;
+
+/** Gwei is 9 decimal places from wei, and `parseGwei` truncates a 10th just as silently. */
+const GWEI_DECIMALS = 9;
 
 /**
  * `--court 3` → `3n`. `option` names the flag so the message points at the flag
@@ -49,6 +52,30 @@ export function parseBigInt(text: string, option: string): KlerosResult<bigint> 
  * silently loses its last digits is a ceiling the operator did not set.
  */
 export function parseEthToWei(text: string, option: string): KlerosResult<bigint> {
+  return parseDecimal(text, option, "ETH", "0.02", WEI_DECIMALS, parseEther);
+}
+
+/**
+ * `--max-fee-gwei 0.05` → `50000000n`.
+ *
+ * A gas fee ceiling, never a ceiling on the arbitration cost: the fee is
+ * `msg.value` and is not gas, so `--max-cost-eth` is the only thing that bounds
+ * it. Both are refused rather than truncated past their last representable
+ * decimal place, for the same reason: a ceiling that silently loses digits is a
+ * ceiling the operator did not set.
+ */
+export function parseGweiToWei(text: string, option: string): KlerosResult<bigint> {
+  return parseDecimal(text, option, "gwei", "0.05", GWEI_DECIMALS, parseGwei);
+}
+
+function parseDecimal(
+  text: string,
+  option: string,
+  unit: string,
+  example: string,
+  decimals: number,
+  convert: (value: string) => bigint,
+): KlerosResult<bigint> {
   const trimmed = text.trim();
   if (trimmed === "") {
     return err("NUMBER_INVALID", `${option} is required and was empty.`, { option });
@@ -56,21 +83,21 @@ export function parseEthToWei(text: string, option: string): KlerosResult<bigint
   if (!DECIMAL_AMOUNT.test(trimmed)) {
     return err(
       "NUMBER_INVALID",
-      `${option} must be a decimal amount of ETH, such as 0.02; got ${JSON.stringify(text)}. ` +
-        "Nothing was sent.",
+      `${option} must be a decimal amount of ${unit}, such as ${example}; got ` +
+        `${JSON.stringify(text)}. Nothing was sent.`,
       { option, value: text },
     );
   }
   const fraction = trimmed.split(".")[1] ?? "";
-  if (fraction.length > WEI_DECIMALS) {
+  if (fraction.length > decimals) {
     return err(
       "NUMBER_INVALID",
-      `${option} has ${fraction.length} decimal places; ETH has at most ${WEI_DECIMALS}. ` +
+      `${option} has ${fraction.length} decimal places; ${unit} has at most ${decimals}. ` +
         "Nothing was sent.",
       { option, value: text },
     );
   }
-  return ok(parseEther(trimmed));
+  return ok(convert(trimmed));
 }
 
 /**

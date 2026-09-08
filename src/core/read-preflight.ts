@@ -1,7 +1,8 @@
-import type { Address, PublicClient } from "viem";
+import type { Address, Hex, PublicClient } from "viem";
+import { parseEventLogs } from "viem";
 import { type MulticallEntry, multicall, type Outcome, rpcError } from "./client.js";
 import { KLEROS_CORE, KLEROS_CORE_ABI } from "./deployment.js";
-import type { ChainFacts, EvidenceChainFacts } from "./preflight.js";
+import type { ChainFacts, EffectiveDispute, EvidenceChainFacts } from "./preflight.js";
 import { err, type KlerosResult, ok } from "./result.js";
 
 /**
@@ -225,4 +226,216 @@ function disputeNotFound(coreDisputeID: bigint): KlerosResult<never> {
       hint: "--dispute takes the core dispute ID, the one Kleros Court shows for the case.",
     },
   );
+}
+
+/* ------------------------------------------------------------------------- *
+ * The quote and the balance — `spec/02 §2`, `spec/04 §2`.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * `KlerosCore.arbitrationCost(extraData)` — the exact number that will be sent.
+ *
+ * The blob is passed through untouched and MUST be the one `checkExtraData`
+ * built: quoting with bytes that are not the bytes sent is how a dispute gets
+ * created at a price nobody quoted (`spec/04 §4`).
+ *
+ * **[abi]** `arbitrationCost` is overloaded — `(bytes)` and `(bytes,address)`,
+ * the second taking a fee token. viem selects by argument count, so a single
+ * argument reaches the ETH path; `deployment.test.ts` pins both overloads so an
+ * ABI that dropped the one-argument form fails the build rather than silently
+ * retargeting the quote at the token path (`spec/01 §8`, ADR-0008).
+ */
+export async function quoteArbitrationCost(params: {
+  client: PublicClient;
+  extraData: Hex;
+}): Promise<KlerosResult<bigint>> {
+  let results: Outcome[];
+  try {
+    results = await multicall(params.client, [
+      { ...core, functionName: "arbitrationCost", args: [params.extraData] },
+    ]);
+  } catch (cause) {
+    return rpcError(
+      "Could not read the arbitration cost from KlerosCore. Nothing was sent.",
+      cause,
+    );
+  }
+
+  const quote = results[0];
+  if (quote?.status !== "success") {
+    return rpcError(
+      `KlerosCore at ${KLEROS_CORE.address} did not answer arbitrationCost(bytes). Nothing was sent.`,
+      quote?.status === "failure" ? quote.error : undefined,
+    );
+  }
+  return ok(quote.result as bigint);
+}
+
+/**
+ * The sender's ETH balance, for `INSUFFICIENT_BALANCE`. Read here rather than
+ * inside `broadcast.ts` so the whole balance arithmetic stays a pure function
+ * over numbers somebody else fetched (`cost.ts`, `spec/04 §2`).
+ */
+export async function readBalance(params: {
+  client: PublicClient;
+  address: Address;
+}): Promise<KlerosResult<bigint>> {
+  try {
+    return ok(await params.client.getBalance({ address: params.address }));
+  } catch (cause) {
+    return rpcError(`Could not read the balance of ${params.address}. Nothing was sent.`, cause);
+  }
+}
+
+/* ------------------------------------------------------------------------- *
+ * After the send — `spec/01 §7`, `spec/02 §1.2`.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * The core dispute ID, from the `DisputeCreation` log **and never from the
+ * function's return value**.
+ *
+ * `createDisputeForTemplate` returns `DisputeResolver`'s **local** dispute ID.
+ * On Arbitrum One today the two are equal for all 216 disputes in existence,
+ * because `DisputeResolver` created every one of them — so no test against
+ * production can tell them apart, and the first dispute created by any other
+ * arbitrable breaks the coincidence permanently and silently (`spec/01 §7`).
+ *
+ * The receipt is re-fetched by hash rather than threaded out of `broadcast.ts`:
+ * that module is inherited verbatim from the juror CLI apart from the three
+ * changes `spec/04 §2` names, and one extra read is cheaper than a fourth.
+ */
+export async function readCreatedDisputeID(params: {
+  client: PublicClient;
+  txHash: Hex;
+}): Promise<KlerosResult<bigint>> {
+  let receipt: Awaited<ReturnType<PublicClient["getTransactionReceipt"]>>;
+  try {
+    receipt = await params.client.getTransactionReceipt({ hash: params.txHash });
+  } catch (cause) {
+    return rpcError(
+      `The transaction was mined but its receipt could not be re-read, so the dispute it ` +
+        `created cannot be named. The arbitration fee is spent. Transaction ${params.txHash}.`,
+      cause,
+    );
+  }
+
+  const created = parseEventLogs({
+    abi: KLEROS_CORE_ABI,
+    eventName: "DisputeCreation",
+    logs: receipt.logs,
+  }).filter((log) => isSameAddress(log.address, KLEROS_CORE.address));
+
+  const first = created[0];
+  if (first === undefined) {
+    return err(
+      "DEPLOYMENT_INCONSISTENT",
+      `Transaction ${params.txHash} was mined but KlerosCore at ${KLEROS_CORE.address} emitted ` +
+        "no DisputeCreation event, so there is no core dispute ID to report. The arbitration " +
+        "fee is spent. Check the transaction before creating a replacement.",
+      {
+        txHash: params.txHash,
+        hint: "The dispute may still exist; read the transaction on chain.",
+      },
+    );
+  }
+
+  return ok((first.args as { _disputeID: bigint })._disputeID);
+}
+
+/**
+ * The dispute as the core now records it — the read half of the effective-value
+ * echo `spec/02 §1.2` requires. No judgement: `checkEffective` in `preflight.ts`
+ * decides whether it matches what was asked for.
+ *
+ * The juror count and the kit come from round 0 rather than from `disputes()`,
+ * which carries neither.
+ */
+export async function readEffectiveDispute(params: {
+  client: PublicClient;
+  coreDisputeID: bigint;
+}): Promise<KlerosResult<EffectiveDispute>> {
+  const { client, coreDisputeID } = params;
+
+  let results: Outcome[];
+  try {
+    results = await multicall(client, [
+      { ...core, functionName: "disputes", args: [coreDisputeID] },
+      { ...core, functionName: "getRoundInfo", args: [coreDisputeID, 0n] },
+    ]);
+  } catch (cause) {
+    return rpcError(
+      `Dispute ${coreDisputeID} was created and paid for, but its court, juror count and kit ` +
+        "could not be read back, so they have not been checked against what was requested.",
+      cause,
+    );
+  }
+
+  const [dispute, round] = results;
+  if (dispute?.status !== "success" || round?.status !== "success") {
+    return rpcError(
+      `Dispute ${coreDisputeID} was created and paid for, but KlerosCore did not answer ` +
+        "disputes() or getRoundInfo(), so the effective court, juror count and kit have not " +
+        "been checked against what was requested.",
+      dispute?.status === "failure" ? dispute.error : undefined,
+    );
+  }
+
+  const [courtID] = dispute.result as readonly [bigint, Address, number, boolean, bigint];
+  const { disputeKitID, nbVotes } = round.result as { disputeKitID: bigint; nbVotes: bigint };
+
+  return ok({ coreDisputeID, courtID, jurors: nbVotes, disputeKitID });
+}
+
+/* ------------------------------------------------------------------------- *
+ * `status` — `spec/03 §2`.
+ * ------------------------------------------------------------------------- */
+
+export type CurrentRuling = {
+  /** The ruling option the dispute currently resolves to. `0` is "refuse to arbitrate". */
+  ruling: bigint;
+  tied: boolean;
+  overridden: boolean;
+};
+
+/**
+ * `KlerosCore.currentRuling(disputeID)`, named by `spec/03 §2` as one of the
+ * three calls `status` makes.
+ *
+ * It is read **only** by `status`, and deliberately not folded into
+ * `readEvidenceFacts`: nothing about a ruling changes whether this tool will
+ * sign a `submitEvidence` call, which has no period gate at all (ADR-0011), and
+ * a read that cannot change the decision to sign does not belong on a write
+ * path (ADR-0001).
+ *
+ * Before the dispute is ruled the call still answers, reporting the tally so
+ * far. `ruled` on the dispute itself is what says whether it is final.
+ */
+export async function readCurrentRuling(params: {
+  client: PublicClient;
+  coreDisputeID: bigint;
+}): Promise<KlerosResult<CurrentRuling>> {
+  let results: Outcome[];
+  try {
+    results = await multicall(params.client, [
+      { ...core, functionName: "currentRuling", args: [params.coreDisputeID] },
+    ]);
+  } catch (cause) {
+    return rpcError(`Could not read the current ruling of dispute ${params.coreDisputeID}.`, cause);
+  }
+
+  const ruling = results[0];
+  if (ruling?.status !== "success") {
+    return rpcError(
+      `KlerosCore did not answer currentRuling(${params.coreDisputeID}).`,
+      ruling?.status === "failure" ? ruling.error : undefined,
+    );
+  }
+
+  const [value, tied, overridden] = ruling.result as readonly [bigint, boolean, boolean];
+  return ok({ ruling: value, tied, overridden });
+}
+
+function isSameAddress(a: string, b: Address): boolean {
+  return a.toLowerCase() === b.toLowerCase();
 }

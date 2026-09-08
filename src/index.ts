@@ -32,7 +32,13 @@ export {
   startup,
 } from "./core/client.js";
 export type { QuoteAssessment } from "./core/cost.js";
-export { checkBalance, checkCostCeiling, LARGE_QUOTE_WEI } from "./core/cost.js";
+export {
+  checkBalance,
+  checkCostCeiling,
+  checkValueAffordable,
+  LARGE_QUOTE_WEI,
+  quoteWarnings,
+} from "./core/cost.js";
 export {
   ARBITRUM_ONE_CHAIN_ID,
   DISPUTE_RESOLVER,
@@ -48,25 +54,48 @@ export type { EvidenceDocument, EvidencePayload } from "./core/evidence.js";
 export { buildEvidence, parseEvidenceDocument, serialiseEvidence } from "./core/evidence.js";
 export type { ExtraDataWords } from "./core/extra-data.js";
 export { EXTRA_DATA_BYTES, encodeExtraData } from "./core/extra-data.js";
-export { formatWeiAsEth, parseBigInt, parseEthToWei } from "./core/numbers.js";
+export {
+  formatWeiAsEth,
+  parseBigInt,
+  parseEthToWei,
+  parseGweiToWei,
+} from "./core/numbers.js";
 export type {
   ChainFacts,
+  EffectiveDispute,
   EvidenceAssessment,
   EvidenceChainFacts,
+  ExtraDataFacts,
+  ExtraDataResult,
   Period,
   PreflightFacts,
   PreflightResult,
   RequestedDispute,
+  RequestedExtraData,
 } from "./core/preflight.js";
 export {
+  checkEffective,
   checkEvidencePreflight,
+  checkExtraData,
   checkPreflight,
   EVIDENCE_PRESSURE_DENOMINATOR,
   EVIDENCE_PRESSURE_NUMERATOR,
   PERIODS,
 } from "./core/preflight.js";
-export type { ReadCreateDisputeParams, ReadEvidenceParams } from "./core/read-preflight.js";
-export { readCreateDisputeFacts, readEvidenceFacts } from "./core/read-preflight.js";
+export type {
+  CurrentRuling,
+  ReadCreateDisputeParams,
+  ReadEvidenceParams,
+} from "./core/read-preflight.js";
+export {
+  quoteArbitrationCost,
+  readBalance,
+  readCreateDisputeFacts,
+  readCreatedDisputeID,
+  readCurrentRuling,
+  readEffectiveDispute,
+  readEvidenceFacts,
+} from "./core/read-preflight.js";
 export type { ErrorCode, KlerosResult } from "./core/result.js";
 export { err, ok } from "./core/result.js";
 export type { DecodedRevert } from "./core/reverts.js";

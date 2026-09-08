@@ -48,6 +48,11 @@ export type ErrorCode =
   // Post-send — `spec/02 §1.2`, `spec/01 §5`
   | "EFFECTIVE_MISMATCH"
   | "SIMULATION_REVERTED"
+  // The transaction was mined and reverted. Distinct from SIMULATION_REVERTED,
+  // where nothing was sent, and from BROADCAST_FAILED, where nothing was
+  // submitted: here there is a hash, gas was spent, and `spec/03 §4` gives a
+  // mined revert its own exit code.
+  | "TRANSACTION_REVERTED"
   // The node refused the signed transaction, so it was never submitted. Distinct
   // from a revert: there is no hash to check and nothing landed (`spec/04 §3`).
   | "BROADCAST_FAILED"
