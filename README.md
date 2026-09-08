@@ -1,0 +1,374 @@
+<h1 align="center">⚖️ kleros-disputant-cli</h1>
+
+<p align="center">
+  <strong>A headless CLI that creates Kleros v2 disputes and submits evidence on Arbitrum One.</strong><br>
+  One-shot commands, no daemon, JSON in and JSON out.<br>
+  <sub>package <code>@kleros/kleros-disputant-cli</code> · binary <code>kleros-disputant</code></sub>
+</p>
+
+<p align="center">
+  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg">
+  <img alt="Node >=22" src="https://img.shields.io/badge/node-%3E%3D22-3c873a.svg">
+  <img alt="Chain: Arbitrum One" src="https://img.shields.io/badge/chain-Arbitrum%20One%20(42161)-28a0f0.svg">
+  <img alt="Status: pre-release" src="https://img.shields.io/badge/status-pre--release-orange.svg">
+</p>
+
+---
+
+> [!IMPORTANT]
+> **This tool files a case; it does not build one.** The claim, the evidence text, the court and the
+> ruling options are always inputs. It never reads counterparty content, never fetches a URI it
+> finds on chain, and never decides whether a dispute is worth creating. Case construction happens
+> upstream — a human, an agent, your business logic.
+
+## Why this exists
+
+Today, creating a Kleros v2 dispute means opening the Court web client and signing in a browser.
+That rules out the party who is a server, a cron job, or an autonomous agent.
+
+This CLI makes the same two writes directly against Arbitrum One:
+
+```
+   create-dispute                       submit-evidence
+   ──────────────                       ───────────────
+   DisputeResolver                      EvidenceModule
+     .createDisputeForTemplate            .submitEvidence
+     payable — the arbitration fee        gas only
+     template inline in calldata          evidence JSON inline
+            │                                    │
+            ▼                                    ▼
+     KlerosCore holds the dispute         indexed against the dispute
+     and draws the jurors                 by the subgraph
+```
+
+`DisputeResolver` is the entry point because an EOA **cannot** call `KlerosCore.createDispute` —
+the deployed core enforces `arbitrableWhitelist` unconditionally.
+
+| It does | It does not |
+| --- | --- |
+| Quote the arbitration fee before you commit to it | Decide the claim, the court, or the ruling options |
+| Create a dispute and register its template | Read, parse, summarise or fetch anything you pass it |
+| Submit one evidence document | Pin to IPFS, or run any HTTP client at all |
+| Report which period a dispute is in | Discover which disputes you are party to |
+| Refuse anything that looks wrong, before spending money | Broadcast anything without `--broadcast` |
+
+Discovery — *which* disputes exist, what state they are in, what the other side filed — belongs to
+[`@kleros/agentkit`](https://github.com/kleros/agentkit), not here. The only reads in this repo are
+the ones that can change the decision to sign.
+
+## Status
+
+**Pre-release.** All four commands are built and tested; the read paths are verified live against
+Arbitrum One. **No transaction has ever been broadcast from this tool.** Treat the first live
+dispute as the shakedown run, on a cheap court, with a ceiling you can afford to lose.
+
+| Command | Signing key | On-chain write |
+| --- | :---: | --- |
+| `arbitration-cost` | — | never |
+| `status` | — | never |
+| `create-dispute` | required | `createDisputeForTemplate`, only with `--broadcast` |
+| `submit-evidence` | required | `submitEvidence`, only with `--broadcast` |
+
+Nothing is published to npm yet, deliberately — see [`CHANGELOG.md`](CHANGELOG.md).
+
+## Requirements
+
+- **Node.js ≥ 22** and [pnpm](https://pnpm.io)
+- An **Arbitrum One RPC endpoint**. The public one works and is rate-limited; pass your own with
+  `--rpc-url` (comma-separated for automatic failover)
+- The **private key** of the party creating the dispute, in a file this tool is pointed at
+- **ETH on Arbitrum One** in that account. It sends its own transactions and pays its own
+  arbitration fee; there is no relayer
+
+## Install
+
+```bash
+git clone git@github.com:kleros/kleros-disputant-cli.git
+cd kleros-disputant-cli
+pnpm install
+pnpm build
+pnpm link --global      # puts `kleros-disputant` on your PATH
+```
+
+Or skip the link and run it in place: `pnpm dev arbitration-cost --court 1 --jurors 3`.
+
+## Set up the key
+
+```bash
+mkdir -p ~/.kleros-disputant
+printf '0x%s' "<64 hex chars>" > ~/.kleros-disputant/key
+chmod 600 ~/.kleros-disputant/key
+```
+
+Then pass `--key-file ~/.kleros-disputant/key`.
+
+The key is read **only** from a file. There is deliberately no `--private-key` flag and no
+`PRIVATE_KEY` environment variable: this process is meant to be launched by an agent gateway that
+also runs model-authored shell commands, and anything in the environment is inherited by every
+child process. A file is not a security boundary against a compromised host — but it is not
+*ambient*, which is the difference that matters here. The tool refuses to run if the file is
+readable by group or others, and the key never appears in any output.
+
+> [!NOTE]
+> **The party creating the dispute must not be a juror in the same dispute.** That is not cheaply
+> detectable on chain and this tool does not check it. It is your responsibility, and nothing here
+> should be read as a guarantee about it.
+
+## Quick start
+
+### 1. What would it cost?
+
+```bash
+kleros-disputant arbitration-cost --court 1 --jurors 3
+```
+
+```json
+{
+  "ok": true,
+  "command": "arbitration-cost",
+  "requested": { "court": "1", "jurors": "3", "disputeKit": "1" },
+  "extraData": "0x00…0001",
+  "arbitrationCost": { "wei": "15000000000000000", "eth": "0.015" },
+  "warnings": [],
+  "message": "Creating a dispute in court 1 with 3 jurors costs 0.015 ETH. Nothing was sent…"
+}
+```
+
+Reads only, needs no key. It runs the *same* court, juror-count and kit checks as `create-dispute`,
+because KlerosCore will happily quote a price for a court that does not exist.
+
+### 2. Write the dispute template
+
+The template is what jurors are actually asked. It is a JSON file you author, and it travels
+**inline in the calldata** — there is no CID and no upload step.
+
+```json
+{
+  "title": "Late delivery under order #4417",
+  "description": "The seller did not deliver within the agreed window.",
+  "question": "Should the escrowed funds be released to the buyer?",
+  "answers": [
+    { "id": "0x1", "title": "Yes, refund the buyer",  "description": "The goods never arrived." },
+    { "id": "0x2", "title": "No, pay the seller",     "description": "Delivery was made on time." }
+  ],
+  "policyURI": "/ipfs/QmWQV5ZFFhEJiW8Lm7ay2zLxC2XS4wx1b2W7FfdrLMyQQc",
+  "arbitratorChainID": "42161",
+  "arbitratorAddress": "0x991d2df165670b9cac3B022f4B68D65b664222ea",
+  "version": "1.0"
+}
+```
+
+Three things to know:
+
+- **Answer `0x0` is reserved** for *Refuse to Arbitrate* and is never in the array. The number of
+  ruling options is derived from `answers`, so there is no separate flag that could disagree with it.
+- **The schema is strict.** An unknown field is rejected by name, not silently ignored — a typo'd
+  key would otherwise reach jurors as a missing one. Why it is strict rather than lenient:
+  [ADR-0010](docs/adr/0010-a-strict-authoring-schema-not-the-sdk-parser.md).
+- **`policyURI` is recorded, never fetched.** So is any `--file-uri` you attach to evidence.
+
+### 3. Dry run — this is the default
+
+```bash
+kleros-disputant create-dispute \
+  --court 1 --jurors 3 \
+  --template-file ./dispute.json \
+  --max-cost-eth 0.02 \
+  --key-file ~/.kleros-disputant/key
+```
+
+Plans, quotes, pre-flights and simulates — then stops. `"status": "simulated"`, and the `message`
+says in words that nothing was sent.
+
+### 4. Actually create it
+
+```bash
+kleros-disputant create-dispute … --broadcast
+```
+
+`--broadcast` **is** the confirmation. There is no prompt, because there is no human assumed to be
+watching.
+
+### 5. Submit evidence
+
+```bash
+kleros-disputant status --dispute 215        # is the evidence period still open?
+
+kleros-disputant submit-evidence \
+  --dispute 215 \
+  --name "Delivery photographs" \
+  --description @statement.md \
+  --file-uri /ipfs/QmWQV5… --file-type-extension pdf \
+  --key-file ~/.kleros-disputant/key --broadcast
+```
+
+`--name` and `--description` each take a literal string, `@path` to read a file, or `-` for stdin.
+Prefer `@path` for anything long: it keeps the text out of the process table.
+
+Full option reference is in the tool itself — `kleros-disputant <command> --help`, or
+`kleros-disputant --llms-full` for the machine-readable manifest. It is not repeated here, so it
+cannot go stale here.
+
+## Output, and what to branch on
+
+Output is **JSON on stdout by default**, because the primary consumer is a program. There is no
+`--json` flag and no `--verbose` flag; `--format` selects another shape if you want one, and
+`--full-output` reveals incur's outer `{ok, data, meta}` envelope.
+
+Errors carry a stable machine-readable `code`, a message that says whether anything was sent, and
+often a `cta` naming the next command to run:
+
+```json
+{
+  "code": "INSUFFICIENT_BALANCE",
+  "message": "The account holds 0 ETH and the arbitration fee alone is 0.015 ETH, before any gas. Nothing was sent.",
+  "cta": {
+    "description": "The arbitration fee is paid on creation and cannot be recovered.",
+    "commands": [
+      {
+        "command": "kleros-disputant arbitration-cost --court 1 --jurors 3 --kit 1",
+        "description": "Quote the fee without committing to it"
+      }
+    ]
+  }
+}
+```
+
+**Branch on `code`, not on the exit status.** Exit codes are coarse buckets for shell callers —
+`0` success (including `simulated` and `unknown`) · `1` validation or refusal, nothing sent ·
+`2` chain or RPC failure · `3` the transaction or its outcome went wrong · `4` signer or key
+failure — but the payload is the real contract.
+
+> [!WARNING]
+> If a broadcast returns `"status": "unknown"`, the CLI stopped watching; **the transaction may
+> still land**. Run `status` before doing anything else. Never re-send blindly — a duplicate
+> `create-dispute` pays the arbitration fee a second time and creates a second dispute.
+
+## The rules it will not let you break
+
+These are enforced in code, not left to the caller:
+
+- **A wrong court is refused locally, because the chain will not refuse it.** A bad court ID, a zero
+  juror count or a malformed `extraData` does *not* revert: KlerosCore's decoder substitutes the
+  General Court, its own juror count and the Classic kit, and creates a paid dispute in the wrong
+  place. `simulateContract` cannot catch that. So the court is validated, kit support is re-read
+  every time, and the *effective* court, juror count and kit are echoed back — a difference from
+  what you asked for is an error, not a warning.
+- **The fee is quoted with the byte-identical `extraData`, immediately before sending, and exactly
+  that amount is sent.** The chain protects you against underpaying, not against overpaying.
+  `--max-cost-eth` is enforced locally the moment the quote arrives, before anything is simulated.
+- **Simulate first, always.** Every state-changing call is simulated, and nothing is broadcast
+  without `--broadcast` ([ADR-0004](docs/adr/0004-broadcast-is-opt-in-no-human-gate.md)).
+- **Chain 42161 only**, asserted as a live `eth_chainId` check before any address is even looked up.
+- **Fees are paid in ETH.** The ERC-20 path is unresolved, so there is no `--fee-token` flag: the
+  broken path cannot be asked for
+  ([ADR-0008](docs/adr/0008-arbitration-fees-are-paid-in-eth-only.md)).
+- **Late evidence warns; it never refuses.** `submitEvidence` has no period gate on chain, and the
+  submission is indexed either way, so refusing would be this CLI inventing a rule the protocol does
+  not have. The one hard refusal is a dispute ID that does not exist
+  ([ADR-0011](docs/adr/0011-evidence-period-pressure-warns-and-never-refuses.md)).
+- **Evidence never enters this process as data.** It is bytes on the way to a transaction: never
+  parsed, never interpolated into anything executable, never able to influence which call is made.
+  Everything written in a dispute is authored by someone with an interest in the outcome
+  ([ADR-0007](docs/adr/0007-evidence-is-opaque-operator-supplied-bytes.md)).
+
+> [!CAUTION]
+> **Creating a dispute spends money and cannot be undone.** The arbitration fee is paid on creation
+> and is not refundable to the creator. There is no cancel, no withdraw, and no second chance at
+> choosing the court.
+
+## Using it from an agent
+
+Every command is self-describing: `--help` for humans, `--llms` / `--llms-full` for a manifest,
+`--schema` for JSON Schema. `incur` also gives the binary a `mcp` group (register it as an MCP
+server) and a `skills` group (sync skill files into an agent). A dedicated agent skill for this
+repo is not written yet — see the roadmap.
+
+The framework-free core is importable too, if you would rather build the calls yourself:
+
+```ts
+import { encodeExtraData, buildTemplate, checkPreflight } from "@kleros/kleros-disputant-cli";
+```
+
+Everything under `src/core/` is free of CLI concerns, never throws, and returns a `KlerosResult<T>`;
+`src/commands/` is the thin layer that owns argument parsing, exit codes and output. That split is
+deliberate — it is what should let the core move into `@kleros/agentkit` as close to a file move as
+possible ([ADR-0001](docs/adr/0001-standalone-repo-shaped-for-upstreaming.md)).
+
+## Development
+
+```bash
+pnpm test             # unit + guard tests; a suite whose prerequisite is absent self-skips loudly
+pnpm test:fork        # spawn an Arbitrum One fork on :8546 and run only the fork tests (needs anvil)
+pnpm test:acceptance  # full lifecycle on a pinned fork; needs an archive RPC
+pnpm typecheck
+pnpm lint             # biome check .   (`pnpm exec biome check --write .` to fix)
+pnpm build
+pnpm dev status --dispute 215
+```
+
+Addresses and ABIs are **imported** from `@kleros/kleros-v2-contracts` in
+[`src/core/deployment.ts`](src/core/deployment.ts) and never hand-copied; it is bundled at build
+time, so it stays a devDependency and adds nothing to your install. The package ships the *deployed*
+artifacts, which differ from what `master` compiles to — a fingerprint test asserts exactly that on
+every run and fails the build if upstream drifts, rather than letting a transaction find out
+([ADR-0006](docs/adr/0006-deployment-imported-from-contracts-package.md)).
+
+The runtime dependencies are exactly two: `incur` and `viem`.
+
+## Where things live
+
+| Where | What |
+| --- | --- |
+| [`CONTEXT.md`](CONTEXT.md) | **The glossary — read this first.** Filing vs case construction, the three dispute IDs, ruling option vs choice, and the near-synonyms to avoid |
+| [`docs/spec/`](docs/spec/) | The normative specification. Start at its [`README.md`](docs/spec/README.md) for the map, the reading order and the verification markers |
+| [`docs/adr/`](docs/adr/) | One file per decision a reader would otherwise question. Numbers 0003 and 0005 are deliberately unused — juror-only decisions this repo never made, left as gaps so `ADR-0004` means the same thing in both repos |
+| [`CLAUDE.md`](CLAUDE.md) | The invariants, as a guard-rail index for agents contributing to this repo |
+| [`CHANGELOG.md`](CHANGELOG.md) | What changed, and why nothing is on npm yet |
+
+This repo inherited no specification: one was written here from the deployed contracts, and every
+chain fact in it carries a marker saying how it was established — `[live]`, `[abi]`, `[computed]`,
+`[client]`, `[inferred]`, `[maintainer]`. **`[client]` and `[inferred]` claims must not be depended
+on without a fork test.** `[live]` claims are stamped with a date and a block; re-run
+[`docs/spec/05-verification.md`](docs/spec/05-verification.md) §4 to refresh them.
+
+Sibling repos, for orientation: [`kleros-juror-cli`](https://github.com/kleros/kleros-juror-cli) is
+the other half of the write plane and the source of this architecture;
+[`@kleros/agentkit`](https://github.com/kleros/agentkit) is the read plane and a peer CLI the same
+agent calls.
+
+## Roadmap
+
+- [ ] The fork test suite — in particular, settling on chain whether excess `msg.value` is refunded
+      or silently buys extra jurors, which the spec still marks `[inferred]` and calls its most
+      expensive unverified claim
+- [ ] `skills/kleros-disputant/SKILL.md` — the agent skill, with a troubleshooting table keyed on
+      error `code`
+- [ ] First broadcast against Arbitrum One, then the first npm release
+- [ ] Upstreaming `src/core/` into `@kleros/agentkit` once its write milestone lands
+
+## Contributing
+
+Issues and pull requests are welcome. Three things to know before you start:
+
+1. **Read [`CONTEXT.md`](CONTEXT.md) and use its vocabulary.** This domain is full of near-synonyms
+   that quietly mean different things — core dispute ID vs local dispute ID, dispute template vs the
+   v1 term for it, ruling option vs choice. The CLI's own surface is machine-checked against that
+   glossary, so a wrong word fails the test suite.
+2. **`docs/spec/` is normative.** Read it before writing domain logic and cite it by section
+   (`spec/01 §4.4`). If you establish a new chain fact, it goes there with a marker.
+3. **A change to the command surface, the option defaults or the JSON envelope is a change to this
+   file too.** If an ADR covers the behaviour you are changing, update the ADR in the same PR.
+
+## Security
+
+Please do not open a public issue for a vulnerability in key handling, payload construction, or the
+broadcast path. Use GitHub's private vulnerability reporting on this repository, or contact the
+maintainers directly.
+
+This is pre-release software that holds a key and spends real ETH on an irreversible action. Read
+the code before you point it at a real dispute.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
