@@ -1,0 +1,254 @@
+import type { Address } from "viem";
+import { describe, expect, it } from "vitest";
+import type { ChainFacts, PreflightFacts, RequestedDispute } from "../preflight.js";
+import { checkPreflight } from "../preflight.js";
+import { EXTRA_DATA_VECTORS } from "./vectors.js";
+
+/**
+ * `spec/05 §1.2` — the safety core. **The single most important test file in the
+ * repository**: it is the only thing standing between a typo and a paid mistake,
+ * and on this write surface it has no on-chain backstop. Every row of X5 quotes
+ * 0.015 ETH and simulates cleanly **[live]**, so nothing downstream catches any
+ * of them.
+ *
+ * Nothing here touches the network. `checkPreflight` takes a facts struct and
+ * returns a decision; there is no client to pass it.
+ */
+
+/** `spec/01 §4.1`, live: `courts(35)` reverts, `disputeKits(5)` reverts. */
+const COURTS_LENGTH = 35n;
+const DISPUTE_KITS_LENGTH = 5n;
+
+const CLASSIC_KIT: Address = "0x70B464be85A547144C72485eBa2577E5D3A45421";
+const DISPUTE_RESOLVER_RULER: Address = "0xb3a5FdEAF461c42caCe148e978e6FBCa97bE6140";
+
+const RULERS = [{ address: DISPUTE_RESOLVER_RULER, name: "DisputeResolverRuler" }] as const;
+
+/** X1's request: General Court, three jurors, Classic, two ruling options. */
+const requested = (over: Partial<RequestedDispute> = {}): RequestedDispute => ({
+  courtID: 1n,
+  jurors: 3n,
+  disputeKitID: 1n,
+  numberOfRulingOptions: 2n,
+  ...over,
+});
+
+/** Everything the reads found, with nothing wrong. */
+const chain = (over: Partial<ChainFacts> = {}): ChainFacts => ({
+  courtsLength: COURTS_LENGTH,
+  disputeKitsLength: DISPUTE_KITS_LENGTH,
+  courtDisabled: false,
+  kitSupported: true,
+  kitAddress: CLASSIC_KIT,
+  refusedAddresses: RULERS,
+  ...over,
+});
+
+const facts = (
+  over: { requested?: Partial<RequestedDispute>; chain?: Partial<ChainFacts> } = {},
+): PreflightFacts => ({
+  requested: requested(over.requested),
+  chain: chain(over.chain),
+});
+
+const refusalOf = (input: PreflightFacts) => {
+  const result = checkPreflight(input);
+  if (result.success) throw new Error("expected a refusal, got a pass");
+  return result;
+};
+
+describe("checkPreflight", () => {
+  it("passes X1 and builds the vector's own extraData", () => {
+    const x1 = EXTRA_DATA_VECTORS[0];
+    const result = checkPreflight(facts());
+    if (!result.success) throw new Error(`unexpected refusal: ${result.code}`);
+    expect(result.data.extraData).toBe(x1.blob);
+    expect((result.data.extraData.length - 2) / 2).toBe(96);
+    expect(result.data).toMatchObject({
+      courtID: 1n,
+      jurors: 3n,
+      disputeKitID: 1n,
+      numberOfRulingOptions: 2n,
+    });
+  });
+
+  describe("X5 — the refusal vectors", () => {
+    it("refuses --court 0, the Forking Court", () => {
+      expect(refusalOf(facts({ requested: { courtID: 0n } })).code).toBe("COURT_OUT_OF_RANGE");
+    });
+
+    it("refuses --court 99, out of range", () => {
+      expect(refusalOf(facts({ requested: { courtID: 99n } })).code).toBe("COURT_OUT_OF_RANGE");
+    });
+
+    it("refuses --jurors 0", () => {
+      expect(refusalOf(facts({ requested: { jurors: 0n } })).code).toBe("JURORS_INVALID");
+    });
+
+    it("refuses --kit 0", () => {
+      expect(refusalOf(facts({ requested: { disputeKitID: 0n } })).code).toBe(
+        "DISPUTE_KIT_OUT_OF_RANGE",
+      );
+    });
+
+    it("refuses --kit 99, out of range", () => {
+      expect(refusalOf(facts({ requested: { disputeKitID: 99n } })).code).toBe(
+        "DISPUTE_KIT_OUT_OF_RANGE",
+      );
+    });
+
+    it("refuses --kit 2 with --court 1, which the General Court does not support", () => {
+      // This one does revert on chain, with `DisputeKitNotSupportedByCourt()`.
+      // Refusing it here first is what gives it a name instead of a selector.
+      const refusal = refusalOf(
+        facts({ requested: { disputeKitID: 2n }, chain: { kitSupported: false } }),
+      );
+      expect(refusal.code).toBe("DISPUTE_KIT_NOT_SUPPORTED");
+    });
+
+    it("cannot emit a blob shorter than 96 bytes", () => {
+      // The seventh X5 row is unreachable by construction rather than refused:
+      // the only blob this tool can emit comes from a passing `checkPreflight`,
+      // and three fixed-width words cannot encode to any other length.
+      const result = checkPreflight(facts());
+      if (!result.success) throw new Error("unexpected refusal");
+      expect((result.data.extraData.length - 2) / 2).toBe(96);
+    });
+  });
+
+  describe("bounds", () => {
+    it("accepts the last court and the last kit", () => {
+      const result = checkPreflight(
+        facts({
+          requested: { courtID: COURTS_LENGTH - 1n, disputeKitID: DISPUTE_KITS_LENGTH - 1n },
+        }),
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it("refuses one past the last court", () => {
+      expect(refusalOf(facts({ requested: { courtID: COURTS_LENGTH } })).code).toBe(
+        "COURT_OUT_OF_RANGE",
+      );
+    });
+
+    it("refuses one past the last kit", () => {
+      expect(refusalOf(facts({ requested: { disputeKitID: DISPUTE_KITS_LENGTH } })).code).toBe(
+        "DISPUTE_KIT_OUT_OF_RANGE",
+      );
+    });
+
+    it("accepts a single juror", () => {
+      expect(checkPreflight(facts({ requested: { jurors: 1n } })).success).toBe(true);
+    });
+  });
+
+  describe("refusal ordering", () => {
+    // Ordering is a diagnosis quality: an out-of-range court is reported as an
+    // out-of-range court, never as an unsupported kit.
+    it("reports the court before anything else", () => {
+      const refusal = refusalOf(
+        facts({
+          requested: { courtID: 99n, jurors: 0n, disputeKitID: 99n, numberOfRulingOptions: 1n },
+          chain: { kitSupported: false },
+        }),
+      );
+      expect(refusal.code).toBe("COURT_OUT_OF_RANGE");
+    });
+
+    it("reports a disabled court before the juror count", () => {
+      const refusal = refusalOf(
+        facts({ requested: { jurors: 0n }, chain: { courtDisabled: true } }),
+      );
+      expect(refusal.code).toBe("COURT_DISABLED");
+    });
+
+    it("reports the juror count before the kit", () => {
+      const refusal = refusalOf(facts({ requested: { jurors: 0n, disputeKitID: 99n } }));
+      expect(refusal.code).toBe("JURORS_INVALID");
+    });
+
+    it("reports an out-of-range kit before an unsupported one", () => {
+      const refusal = refusalOf(
+        facts({ requested: { disputeKitID: 99n }, chain: { kitSupported: false } }),
+      );
+      expect(refusal.code).toBe("DISPUTE_KIT_OUT_OF_RANGE");
+    });
+
+    it("reports an unsupported kit before a refused one", () => {
+      const refusal = refusalOf(
+        facts({ chain: { kitSupported: false, kitAddress: DISPUTE_RESOLVER_RULER } }),
+      );
+      expect(refusal.code).toBe("DISPUTE_KIT_NOT_SUPPORTED");
+    });
+
+    it("reports the kit before the ruling options", () => {
+      const refusal = refusalOf(
+        facts({ requested: { disputeKitID: 0n, numberOfRulingOptions: 1n } }),
+      );
+      expect(refusal.code).toBe("DISPUTE_KIT_OUT_OF_RANGE");
+    });
+  });
+
+  describe("governance override contracts", () => {
+    it("refuses a kit that resolves to a ruler", () => {
+      const refusal = refusalOf(facts({ chain: { kitAddress: DISPUTE_RESOLVER_RULER } }));
+      expect(refusal.code).toBe("DISPUTE_KIT_REFUSED");
+      expect(refusal.message).toContain("DisputeResolverRuler");
+    });
+
+    it("compares addresses without regard to checksum casing", () => {
+      const refusal = refusalOf(
+        facts({ chain: { kitAddress: DISPUTE_RESOLVER_RULER.toLowerCase() as Address } }),
+      );
+      expect(refusal.code).toBe("DISPUTE_KIT_REFUSED");
+    });
+  });
+
+  describe("fails closed on a fact that was not read", () => {
+    // A fact the read layer could not supply is a refusal, never a pass. This is
+    // the difference between a safety function and a formality.
+    it("refuses when the court's disabled flag is missing", () => {
+      const refusal = refusalOf(facts({ chain: { courtDisabled: undefined } }));
+      expect(refusal.code).toBe("COURT_DISABLED");
+      expect(refusal.message).toContain("not");
+    });
+
+    it("refuses when isSupported was not read", () => {
+      // Never cached, so "not read" is a real state on every invocation.
+      const refusal = refusalOf(facts({ chain: { kitSupported: undefined } }));
+      expect(refusal.code).toBe("DISPUTE_KIT_NOT_SUPPORTED");
+    });
+
+    it("refuses when the kit address was not read and there are contracts to refuse", () => {
+      const refusal = refusalOf(facts({ chain: { kitAddress: undefined } }));
+      expect(refusal.code).toBe("DISPUTE_KIT_REFUSED");
+    });
+
+    it("does not invent a refusal when there is nothing to refuse against", () => {
+      const result = checkPreflight(
+        facts({ chain: { kitAddress: undefined, refusedAddresses: [] } }),
+      );
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe("ruling options", () => {
+    it("refuses fewer than two", () => {
+      expect(refusalOf(facts({ requested: { numberOfRulingOptions: 1n } })).code).toBe(
+        "RULING_OPTIONS_INVALID",
+      );
+      expect(refusalOf(facts({ requested: { numberOfRulingOptions: 0n } })).code).toBe(
+        "RULING_OPTIONS_INVALID",
+      );
+    });
+  });
+
+  it("never mentions a court it was not asked about", () => {
+    // The message is what an agent acts on. A refusal naming the General Court
+    // when the operator asked for court 99 is worse than no message at all.
+    const refusal = refusalOf(facts({ requested: { courtID: 99n } }));
+    expect(refusal.message).toContain("99");
+    expect(refusal.message).toContain("34");
+  });
+});

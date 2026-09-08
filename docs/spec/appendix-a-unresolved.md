@@ -97,11 +97,18 @@ The refusal is still right; the reason is unreachability, not loss. The error me
 so, because "the chain would reject it" is false and an agent may act on it.
 See [02 §4.2](./02-payload-construction.md).
 
-### 3.4 `extraEvidences` is not a template field
+### 3.4 `extraEvidences` — §14.6 was right and this specification was wrong
 
-§14.6 lists `extraEvidences` among the optional fields. It is **not** in the canonical
-`DisputeDetailsSchema`. The optional set is `attachment`, `frontendUrl`, `metadata`, `category`,
-`lang`, `specification`, `aliases`.
+§14.6 lists `extraEvidences` among the optional fields, and an earlier draft of
+[02 §3.1](./02-payload-construction.md) contradicted it. **[client]** The canonical
+`DisputeDetailsSchema` in `@kleros/kleros-sdk@2.4.0` declares
+`extraEvidences: z.array(EvidenceSchema).default([])`, so the field exists and the parser supplies
+an empty array when a document omits it. §14.6 stands; this row records the reversal because a
+disagreement someone already believed is worth keeping visible in both directions.
+
+The optional set is therefore `attachment`, `frontendUrl`, `metadata`, `category`, `lang`,
+`specification`, `aliases` and `extraEvidences`. This CLI authors none of the last one and its
+strict schema refuses it, which is unaffected either way.
 
 Related: the canonical schema is a plain `z.object`, so it is neither `.strict()` nor
 `.passthrough()` — it **strips** unknown keys silently. That is a further argument for

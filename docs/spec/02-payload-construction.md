@@ -169,7 +169,7 @@ disputeDetailsSchema.ts`).
 `arbitratorAddress`, `version`.
 
 **Optional**: `attachment` (`{ label, uri }`), `frontendUrl`, `metadata`, `category`, `lang`,
-`specification`, `aliases`.
+`specification`, `aliases`, `extraEvidences`.
 
 | Field | Constraint |
 | --- | --- |
@@ -179,9 +179,16 @@ disputeDetailsSchema.ts`).
 | `arbitratorAddress` | The `KlerosCore` address from the package, checksummed or not |
 | `version` | A string. Free-form; the canonical schema does not constrain it |
 
-Two corrections to earlier drafts, both from the canonical schema:
+Two notes on the canonical schema:
 
-- **`extraEvidences` is not a field.** It is not in `DisputeDetailsSchema`.
+- **`extraEvidences` is a field**, declared `z.array(EvidenceSchema).default([])` — so the
+  canonical parser *adds* it when it is absent rather than rejecting the document. **[client]**,
+  read from `@kleros/kleros-sdk@2.4.0`,
+  `lib/src/dataMappings/utils/disputeDetailsSchema.js`, on 2026-09-08. *(An earlier draft of this
+  section claimed the opposite and "corrected" handoff §14.6, which was right — see
+  [Appendix A §3.4](./appendix-a-unresolved.md).)* This CLI does not author it, so its strict
+  schema refuses a template carrying one; that is an authoring choice, not a claim about the
+  canonical schema.
 - The canonical schema is a plain `z.object`, so it is **neither** `.strict()` **nor**
   `.passthrough()`: unknown keys are silently stripped when it parses, not rejected. That leniency
   is appropriate for a consumer and wrong for an author.
@@ -216,6 +223,12 @@ Court web client, whose `isTemplateValid` uses the schema above.
 
 The CLI **MUST** enforce the multiaddr form anyway, and **MUST** refuse a plain `https://` URL,
 because the failure it prevents is invisible until after the money is spent.
+
+**[client]** The refinement is the SDK's `isMultiaddr`, and it has two branches: a
+`/<protocol>/<segment>…` path form whose protocol list includes `ipfs`, and an `ipfs://` form that
+**requires a path segment** — `ipfs://<cid>` alone does not pass, `ipfs://<cid>/policy.json` does.
+The CLI **SHOULD** transcribe that predicate rather than approximate it: a URI the CLI accepts and
+the Kleros Court web client rejects renders degraded with the money already spent.
 
 ### 3.5 Test vector — T1
 

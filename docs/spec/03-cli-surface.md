@@ -173,9 +173,13 @@ value ([01 §7](./01-onchain-reference.md)).
   "command": "create-dispute",
   "code": "COURT_OUT_OF_RANGE",
   "message": "Court 99 does not exist: KlerosCore has courts 1 through 34. Nothing was sent.",
-  "details": { "hint": "kleros dispute court list --chain arbitrum-one" }
+  "details": { "hint": "kleros court list --chain arbitrum-one" }
 }
 ```
+
+`court list` is a top-level group in `@kleros/agentkit`, not a subcommand of `dispute` — verified
+against its own command tree on 2026-09-08. Citing a command a peer CLI does not have is the
+juror repo's known defect; do not reintroduce it here.
 
 **Only `details.hint` reaches the user.** Everything else in `details` is for tests; dumping the
 whole object makes messages unreadable for the consuming agent.
