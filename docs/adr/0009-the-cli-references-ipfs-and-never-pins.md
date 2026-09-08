@@ -52,6 +52,14 @@ HTTPS URL, while never fetching what it points at.
 Behind its own ADR and its own **separate, non-signing subcommand** — never in the same process
 invocation as a broadcast. The options, worst fit last:
 
+- The **Netlify function** at `kleros-api.netlify.app/.netlify/functions/upload-to-ipfs`
+  (`kleros/court-functions`, `functions/upload-to-ipfs.ts`), unauthenticated. This is the endpoint
+  Kleros's own code reaches for — `kleros/reputation-oracle`'s `web/src/lib/ipfs.ts` uses it, and
+  it is the one to prefer over Atlas when reading the Court UI's `SubmitEvidenceModal.tsx`
+  **[maintainer]**. It needs no credential, no second chain and no second token, which is what
+  makes it a better fit here than either of the next two. **Not verified from this repo**: nothing
+  in it has been called, and it is a service rather than a contract, so its availability and its
+  terms are somebody else's to change.
 - `cdn.kleros.link/add`, unauthenticated per its OpenAPI spec. **Untested**, and the Court UI
   reaches IPFS through SIWE-gated Atlas, which is documented as internal-only. Verify before
   designing around it.
