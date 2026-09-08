@@ -18,8 +18,9 @@ one is a claim someone already believed.
 
 Status: bootstrapping. `src/core/` and `src/commands/` are complete — the pure functional core, the
 deployment pinned by a fingerprint test, the read layer, the transaction path, and the four
-commands on incur, with the read paths verified live against Arbitrum One; still no `README.md`, no
-skill, nothing published to npm, **no transaction ever broadcast**. Step 12 is next.
+commands on incur, with the read paths verified live against Arbitrum One. `README.md` is written
+(step 13, out of order); still no skill, nothing published to npm, **no transaction ever
+broadcast**. Step 12, the fork tests, is next.
 Build order: `HANDOFF §10`.
 
 ```
@@ -125,9 +126,10 @@ The **CLI surface is machine-checked** against the glossary: `vocabulary.test.ts
 it in. Its list is narrower than the `_Avoid_` lines on purpose — read the comment before widening
 it. Prose is not checked, so `README.md` and `CONTEXT.md` may name a banned term to contrast it.
 
-`README.md` will be the only doc written for a stranger, and once it exists a change to the command
-surface, the option defaults or the JSON envelope is a change to it too. Keep the restated surfaces
-few — the juror repo's Status table still lists a command its Roadmap checks off.
+`README.md` is the only doc written for a stranger, so a change to the command surface, the option
+defaults or the JSON envelope is a change to it too. It restates few surfaces on purpose — options
+point at `--help`, addresses at `ADR-0006` — and its Roadmap names nothing its Status table lists,
+which is the contradiction still live in the juror repo's README.
 
 ## Reference material
 
