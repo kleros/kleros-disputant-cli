@@ -20,7 +20,14 @@
 import { createRequire } from "node:module";
 import { Cli, z } from "incur";
 import { runArbitrationCost, runStatus } from "./commands/read.js";
-import { chainOptions, extraDataOptions, finish, writeOptions } from "./commands/shared.js";
+import {
+  chainOptions,
+  extraDataOptions,
+  finish,
+  uploadSuccessCta,
+  writeOptions,
+} from "./commands/shared.js";
+import { runUploadFile } from "./commands/upload.js";
 import { runCreateDispute, runSubmitEvidence } from "./commands/write.js";
 
 const require = createRequire(import.meta.url);
@@ -181,8 +188,8 @@ const cli = Cli.create("kleros-disputant", {
         .string()
         .optional()
         .describe(
-          "URI of an attachment, typically /ipfs/…. Recorded as given and never fetched. This " +
-            "tool does not upload or pin anything.",
+          "URI of an attachment, typically /ipfs/…. Recorded as given and never fetched. Get one " +
+            "from upload-file, or pass a URI you pinned yourself.",
         ),
       "file-type-extension": z
         .string()
@@ -225,6 +232,67 @@ const cli = Cli.create("kleros-disputant", {
         maxFeeGwei: c.options["max-fee-gwei"],
       });
       return finish(c, result, { dispute: c.options.dispute });
+    },
+  })
+  .command("upload-file", {
+    description:
+      "Upload one local file to IPFS and print the fileURI to pass to submit-evidence. Checks " +
+      "the file and stops unless --publish is passed. This is the only command that speaks " +
+      "HTTP: it never signs, never reads the chain and never loads a key. Publishing content " +
+      "addressed by a CID cannot be undone.",
+    destructive: true,
+    options: z.object({
+      file: z
+        .string()
+        .describe(
+          "Path to the file to upload. Exactly one per run, because the endpoint keeps only the " +
+            "last part sent under a given field name.",
+        ),
+      publish: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Actually upload. Without it the command reports the size, the SHA-256 and every " +
+            "refusal, and stops. There is no confirmation prompt: this flag is the confirmation.",
+        ),
+      "upload-url": z
+        .string()
+        .optional()
+        .describe(
+          "Override the pinning endpoint, for a private deployment of the same function. It is " +
+            "never read from an environment variable.",
+        ),
+      gateway: z
+        .string()
+        .optional()
+        .describe("Override the IPFS gateway used to read the CID back after uploading."),
+      "no-verify": z
+        .boolean()
+        .default(false)
+        .describe(
+          "Skip reading the CID back to confirm it addresses the bytes that were sent. The " +
+            "check is on by default because the endpoint can truncate a file silently.",
+        ),
+    }),
+    examples: [
+      {
+        description: "Check a file without uploading it",
+        options: { file: "./delivery-photos.pdf" },
+      },
+      {
+        description: "Upload it and get the URI for submit-evidence",
+        options: { file: "./delivery-photos.pdf", publish: true },
+      },
+    ],
+    async run(c) {
+      const result = await runUploadFile({
+        file: c.options.file,
+        publish: c.options.publish,
+        uploadUrl: c.options["upload-url"],
+        gateway: c.options.gateway,
+        verify: !c.options["no-verify"],
+      });
+      return finish(c, result, {}, uploadSuccessCta);
     },
   });
 

@@ -86,6 +86,28 @@ fails the build rather than a transaction. At minimum:
 - The exit-code map is exhaustive over the error-code union — a compile-time assertion, not a
   runtime one.
 
+### 1.8 Attachment upload
+
+Offline, against a fake `fetch`. Nothing in this group may reach the network — the live checks are
+[06 §5](./06-attachment-upload.md), and the one suite that does reach it is §2.1 below.
+
+- The request is shaped as [06 §2](./06-attachment-upload.md) fixes it: `POST`, one `file` part,
+  `operation` present and non-empty, `pinToGraph=false`.
+- **`operation` is present even though the service discards its value.** A regression that drops it
+  turns every upload into a `400`, and no other assertion here would notice.
+- A `2xx` whose `cids` array is empty is `UPLOAD_FAILED`, not a success.
+- A non-`2xx` with an empty `text/plain` body is `UPLOAD_FAILED` and is **not** JSON-parsed.
+- A CID returned bare and one returned `/ipfs/`-prefixed normalise to the same `fileURI`.
+- The size gate is computed from the **serialised body**, base64-expanded, against
+  `6 MiB − 64 KiB` — not from the file length. A long filename moves the boundary, and a test with
+  one asserts that it does.
+- An empty file is `FILE_EMPTY` **before** any request is attempted; an unreadable path is
+  `FILE_UNREADABLE` before it too. The fake `fetch` asserts it was never called.
+- Verification: matching bytes pass; differing bytes are `UPLOAD_MISMATCH`; a gateway that never
+  answers is a **warning** with `verified: false`, never a failure.
+- Without `--publish`, `fetch` is never called at all.
+- `fileTypeExtension` is derived from the path, omitted when there is none, and never guessed.
+
 ## 2. Fork tests
 
 On an Arbitrum One fork at `:8546`. `pnpm test:fork`, which starts anvil, waits for it and reaps it.
@@ -199,6 +221,15 @@ cast call $CORE "arbitrableWhitelist(address)(bool)" $RES --rpc-url $RPC  # expe
 cast call $RES "disputes(uint256)(bytes,bool,uint256,uint256)" 215 --rpc-url $RPC
 ```
 
+## 4.1 Live service checks
+
+[06 §5](./06-attachment-upload.md) holds the commands that produced every **[service]** claim, and
+is the only place in this document set that describes re-measuring something that is not a
+contract. Run them when an upload starts failing, or before trusting a **[service]** row that
+matters: unlike a deployment, this endpoint can change with no signal this repo can detect.
+
+They upload real files to a real pinning service. Use inert content.
+
 ## 5. Acceptance criteria
 
 The tool is done when all of the following hold:
@@ -217,6 +248,10 @@ The tool is done when all of the following hold:
    ([01 §3.2](./01-onchain-reference.md)).
 8. **The effective court, juror count and dispute kit in the envelope match what was requested**,
    read back from chain state rather than echoed from the inputs.
+9. **`upload-file` uploads nothing without `--publish`**, and the check-only result says so in
+   words — the same bar as criterion 5, for the other irreversible action
+   ([ADR-0012](../adr/0012-attachment-upload-is-in-scope-behind-its-own-command.md)).
+10. **No command that signs opens a socket to anything but the RPC.**
 
 ## 6. Known upstream issues to guard against
 
@@ -228,3 +263,9 @@ The tool is done when all of the following hold:
 - **The documentation says the General Court supports all four dispute kits.** It supports Classic.
 - **The package's `.sol` sources disagree with the deployment** for every contract this tool
   writes to. Bind to the ABIs.
+- **The pinning endpoint answers `200` when it has pinned nothing** — an empty file, or a request
+  with no file part. Treating its status code as the outcome loses the file silently.
+- **The pinning endpoint reassigns the uploaded file on every `data` event**, so a body arriving in
+  more than one chunk would pin its last chunk alone under a valid CID. It does not fire today, for
+  a reason that is incidental to the bug. This is why verification is on by default
+  ([06 §4.2](./06-attachment-upload.md)).

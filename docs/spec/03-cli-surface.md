@@ -25,9 +25,17 @@ incur supplies `--filter-output`, `--format`, `--full-output`, `--llms`, `--llms
 | `status` | no | `KlerosCore` | `disputes`, `getTimesPerPeriod`, `currentRuling` |
 | `create-dispute` | **yes, payable** | `DisputeResolver` | `createDisputeForTemplate` |
 | `submit-evidence` | **yes** | `EvidenceModule` | `submitEvidence` |
+| `upload-file` | no chain | *(none)* | HTTP `POST` to the pinning endpoint — [06](./06-attachment-upload.md) |
 
 Both write commands **MUST** be registered with `destructive: true`, so incur appends its
-confirm-with-the-user line to `--llms-full`.
+confirm-with-the-user line to `--llms-full`. So **MUST** `upload-file`: it signs nothing, but
+publishing content addressed by a CID cannot be undone
+([ADR-0012](../adr/0012-attachment-upload-is-in-scope-behind-its-own-command.md)).
+
+`upload-file` is the **only** command that opens a socket to anything but the RPC, and it is
+deliberately not reachable from either write command — `submit-evidence` **MUST NOT** grow a
+`--file` flag. [06 §1](./06-attachment-upload.md) has the reasoning; the short form is that a dry
+run would have to either publish or lie.
 
 `register-template` (`DisputeTemplateRegistry.setDisputeTemplate`) is a separate write surface and
 is **out of scope for v1**: `createDisputeForTemplate` covers the common case by registering the
@@ -96,6 +104,18 @@ Both take `@path` to read a file and `-` to read stdin. Passing `-` for **both**
 can only be drained once, and the second read would come back empty and be rejected as a blank
 field — a true refusal with a misleading reason.
 
+### 3.4 `upload-file`
+
+| Option | Required | Notes |
+| --- | --- | --- |
+| `--file` | yes | Path to the local file. The **only** path this tool ever reads that is not a key or a template |
+| `--publish` | no | Default `false`. Without it the command checks the file and stops. **Not** `--broadcast`: nothing is broadcast to a chain |
+| `--upload-url` | no | Override the endpoint. No environment variable, per [§3.1](#31-shared) |
+| `--no-verify` | no | Skip the round-trip check. On by default — [06 §4.2](./06-attachment-upload.md) |
+
+It takes **none** of `--rpc-url`, `--key-file`, `--broadcast` or `--max-fee-gwei`. There is no
+chain interaction to configure and no key to load.
+
 ## 4. Exit codes
 
 Exit codes exist for shell callers. **They are not the machine contract** — the consuming agent
@@ -105,7 +125,7 @@ sees an effectively binary status, so failure semantics live in the JSON payload
 | --- | --- |
 | 0 | Success, including `status: "simulated"` and `status: "unknown"` |
 | 1 | Validation or refusal — every pre-flight rejection |
-| 2 | Chain or RPC failure |
+| 2 | Chain, RPC or upload-service failure |
 | 3 | Transaction reverted |
 | 4 | Signer or key failure |
 
@@ -234,11 +254,19 @@ specification and **MUST NOT** be renamed.
 | `EFFECTIVE_MISMATCH` | The created dispute's court, jurors or kit differ from those requested |
 | `SIMULATION_REVERTED` | `simulateContract` reverted. Carries the decoded reason or the raw selector |
 | `TRANSACTION_REVERTED` | The transaction was mined and reverted. The `message` **MUST** name the hash, and for `create-dispute` **MUST** say the fee was returned with the revert while the gas was not |
+| `FILE_UNREADABLE` | `--file` is missing, is not a regular file, or cannot be read |
+| `FILE_EMPTY` | `--file` is zero bytes. The service answers `200` and pins nothing |
+| `FILE_TOO_LARGE` | The encoded upload request would exceed the platform budget ([06 §3.1](./06-attachment-upload.md)) |
+| `UPLOAD_FAILED` | The endpoint returned non-`2xx`, could not be reached, or returned `2xx` with no CID |
+| `UPLOAD_MISMATCH` | The gateway returned different bytes for the returned CID than were uploaded |
 
 ## 6. Signer
 
 - **Exactly one credential: the signing key.** No pinning service token, no subgraph key, no API
-  key of any kind. [ADR-0009](../adr/0009-the-cli-references-ipfs-and-never-pins.md)
+  key of any kind. This survives `upload-file` intact: that endpoint is unauthenticated, which is
+  the single largest reason it was the one chosen.
+  [ADR-0009](../adr/0009-the-cli-references-ipfs-and-never-pins.md),
+  [ADR-0012](../adr/0012-attachment-upload-is-in-scope-behind-its-own-command.md)
 - The key **MUST** be read from a file whose path is given by `--key-file`. It **MUST NOT** be
   accepted from an environment variable or a command-line argument.
 - The key **MUST NOT** appear in any output, any error, any log line, or any `details` object —
@@ -250,7 +278,9 @@ specification and **MUST NOT** be renamed.
 
 ## 7. Startup checks
 
-Ordering is a safety property, not style. The CLI **MUST** run these in order:
+Ordering is a safety property, not style. Every command that touches the chain **MUST** run these
+in order. `upload-file` runs **none** of them, because it makes no chain call for them to protect
+([06 §1](./06-attachment-upload.md)):
 
 1. **`eth_chainId == 42161`.** Strictly before any deployment registry lookup — a registry lookup
    is scoped to a deployment, and trusting it on an unverified chain reads the wrong core.

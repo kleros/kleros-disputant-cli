@@ -71,7 +71,31 @@ A JSON document `{ name, description, fileURI?, fileTypeExtension? }` passed **i
 `EvidenceModule.submitEvidence`, emitted in an event and never stored on chain. The field is
 `name`; the published docs page saying `title` is wrong and a `title`-keyed document indexes with a
 null name. A bare `/ipfs/…` string in place of the JSON parse-fails in the subgraph.
-_Avoid_: title (as the field name), exhibit, attachment (that is `fileURI`), submission
+_Avoid_: title (as the field name), exhibit, attachment (the evidence is the *document*; the
+attachment is only what `fileURI` points at — see **Attachment**), submission
+
+**Attachment**:
+The one file an evidence document may point at, through its `fileURI`. It is *not* the evidence —
+the evidence is the JSON document, and calling that an attachment is the confusion this entry
+exists to prevent. Produced by `upload-file`, which is the only command in this tool that speaks
+HTTP; supplying an already-pinned URI by hand remains supported.
+_Avoid_: exhibit, document (that is the evidence), file (unqualified — a key file and a template
+file are also files)
+
+**Pinning**:
+Uploading bytes to a service that keeps them retrievable by CID. In scope since 2026-09-09, in
+exactly one place: `upload-file`, which never signs, never reads the chain and never loads a key.
+No command that signs pins anything, and the tool still never *dereferences* a URI it was handed.
+`ADR-0012` reversed `ADR-0009` on this and explains what survived.
+_Avoid_: uploading to IPFS (imprecise — the CLI posts to one endpoint, which pins), storing,
+hosting, saving
+
+**fileURI**:
+The `/ipfs/<cid>` multiaddr naming an attachment, and what `upload-file` prints. Content-addressed
+and nothing more: identical bytes produce an identical CID under any filename, so re-uploading is
+idempotent and free. Unlike `policyURI` it is not held to the schema's multiaddr refinement — it
+is an operator input the contract never reads.
+_Avoid_: link, URL (a plain `https://` URL is the thing `policyURI` refuses), hash, IPFS address
 
 **Policy**:
 The court's or the arbitrable's rules document, referenced by the template's `policyURI` as a

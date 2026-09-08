@@ -71,6 +71,22 @@ travel, not an unresolved three-way ambiguity — and after the removal the para
 `_arbitratorDisputeID`, which is exactly what this specification already mandates. The full account,
 including why a selector fingerprint cannot see the change, is [01 §7.1](./01-onchain-reference.md).
 
+## 2.1 What remains unverified about the pinning endpoint
+
+[06](./06-attachment-upload.md) is measured, not inferred — every row of its behaviour table came
+from a live request on 2026-09-09. What cannot be settled by measurement is listed here, because
+**[service]** is the weakest marker in this document set and the reasons are structural.
+
+| # | Claim | Status |
+| --- | --- | --- |
+| S1 | The endpoint stays available, unauthenticated and free | **Unverifiable by this repo.** It is somebody else's deployment, with no version to read and no fingerprint to pin. A change ships with no signal here. [06 §5](./06-attachment-upload.md) is the re-measurement procedure, and the failure is loud (`UPLOAD_FAILED`) rather than silent |
+| S2 | The single-chunk delivery that hides the handler's overwrite bug holds for every body size and every edge region | **Open, and deliberately not depended on.** Confirmed byte for byte from 23 B to 4 MiB from one client on one day. The mechanism — one `bb.write()` of the whole body — is in the source and looks robust, but it is a property of the platform's buffering, not of the handler. Verification-by-default ([06 §4.2](./06-attachment-upload.md)) makes it not matter |
+| S3 | The 6 MiB budget is the platform's and not the function's | **Inferred from the shape of the failure.** The `413` carries an empty `text/plain` body and arrives in 150 ms for an 8 MiB request — far too fast to have reached the handler — so it is an edge limit. Nothing turns on which layer imposes it: the CLI refuses locally either way |
+| S4 | Filebase keeps the content pinned indefinitely | **Out of scope and not promised.** Kleros's own documentation advises pinning independently, and [ADR-0009](../adr/0009-the-cli-references-ipfs-and-never-pins.md)'s reasoning about who should keep content available still applies *after* the upload. The CLI says the file is public and permanent; it does not say who is paying to keep it reachable |
+
+None of these blocks the implementation. S1 and S4 are the operator's to accept, and the ADR says
+so; S2 is neutralised by a check; S3 changes nothing.
+
 ## 3. Corrections to `HANDOFF_DISPUTANT_CLI.md` §14
 
 Each row is a claim in the handoff that this specification supersedes. They are listed because

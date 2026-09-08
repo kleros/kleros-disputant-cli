@@ -1,5 +1,16 @@
 # The CLI references IPFS content and never pins it
 
+> **Superseded in part, 2026-09-09.** The conclusion below — that this tool never pins — was
+> reversed by a Kleros v2 maintainer and is replaced by
+> [ADR-0012](./0012-attachment-upload-is-in-scope-behind-its-own-command.md). Uploading an
+> attachment is now in scope, behind the separate non-signing `upload-file` command.
+>
+> **What still stands:** everything in *The research that made this easy* and *Two layers that are
+> easy to conflate*, and the endpoint ranking under *If pinning is ever brought in scope* — ADR-0012
+> follows it and takes the first option. The credential surface is still exactly one signing key,
+> because that endpoint is unauthenticated. Read this ADR for why the happy path touches IPFS in so
+> few places; read ADR-0012 for what happens when it does.
+
 `kleros-juror-cli` is pure RPC: no subgraph, no HTTP services, no off-chain writes. That simplicity
 is load-bearing — it is why the tool has no credentials beyond a signing key, why no service outage
 can wedge it, and why every failure mode is on chain. Dispute templates and evidence attachments
@@ -77,3 +88,9 @@ content is pinned but not submitted, or submitted pointing at content that never
 outage can wedge a write. And `--template-uri`, `--policy-uri` and `--file-uri` are ordinary string
 arguments the caller is responsible for — which is the honest division of labour, because the party
 that authored the content is the party that should be keeping it available.
+
+> **ADR-0012:** the first two sentences survive unchanged — the endpoint needs no credential, and
+> ordering `upload-file` before `submit-evidence` still leaves no state where a submission points at
+> content that never pinned. The last one did not. "The caller is responsible for it" is not a
+> division of labour when the caller is an agent holding a PDF and no way to pin it; it is the tool
+> declining to finish the job. That is why this ADR was reversed.

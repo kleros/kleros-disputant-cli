@@ -109,3 +109,18 @@ export {
   parseTemplate,
   serialiseTemplate,
 } from "./core/template.js";
+export type {
+  FileToUpload,
+  UploadOutcome,
+  UploadRequest,
+  VerifyOutcome,
+} from "./core/upload.js";
+export {
+  buildUploadRequest,
+  DEFAULT_GATEWAY,
+  DEFAULT_UPLOAD_URL,
+  ENCODED_BUDGET_BYTES,
+  postUpload,
+  readFileToUpload,
+  verifyUpload,
+} from "./core/upload.js";

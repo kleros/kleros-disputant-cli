@@ -47,8 +47,8 @@ the deployed core enforces `arbitrableWhitelist` unconditionally.
 | It does | It does not |
 | --- | --- |
 | Quote the arbitration fee before you commit to it | Decide the claim, the court, or the ruling options |
-| Create a dispute and register its template | Read, parse, summarise or fetch anything you pass it |
-| Submit one evidence document | Pin to IPFS, or run any HTTP client at all |
+| Create a dispute and register its template | Decide what to upload, or keep it pinned afterwards |
+| Submit one evidence document, and upload its attachment | Read, parse or fetch a URI *you* hand it |
 | Report which period a dispute is in | Discover which disputes you are party to |
 | Refuse anything that looks wrong, before spending money | Broadcast anything without `--broadcast` |
 
@@ -58,8 +58,9 @@ the ones that can change the decision to sign.
 
 ## Status
 
-**Pre-release.** All four commands are built and tested; the read paths are verified live against
-Arbitrum One, and both write paths broadcast on an Arbitrum One fork under `pnpm test:fork`.
+**Pre-release.** All five commands are built and tested; the read paths are verified live against
+Arbitrum One, both write paths broadcast on an Arbitrum One fork under `pnpm test:fork`, and
+`upload-file` is measured against the live pinning endpoint.
 **No transaction has ever been broadcast to Arbitrum One itself.** Treat the first live dispute as
 the shakedown run, on a cheap court, with a ceiling you can afford to lose.
 
@@ -69,6 +70,7 @@ the shakedown run, on a cheap court, with a ceiling you can afford to lose.
 | `status` | — | never |
 | `create-dispute` | required | `createDisputeForTemplate`, only with `--broadcast` |
 | `submit-evidence` | required | `submitEvidence`, only with `--broadcast` |
+| `upload-file` | — | never — no chain at all, only with `--publish` |
 
 Nothing is published to npm yet, deliberately — see [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -190,7 +192,28 @@ kleros-disputant create-dispute … --broadcast
 `--broadcast` **is** the confirmation. There is no prompt, because there is no human assumed to be
 watching.
 
-### 5. Submit evidence
+### 5. Upload the attachment, if there is one
+
+```bash
+kleros-disputant upload-file --file ./delivery-photos.pdf            # checks, uploads nothing
+kleros-disputant upload-file --file ./delivery-photos.pdf --publish  # uploads, prints the URI
+```
+
+Skip this if you already have a pinned URI — `--file-uri` still accepts one you produced yourself.
+
+This is the only command that speaks HTTP, and the only one with no chain in it: it never signs,
+never reads the chain and never loads a key. `--publish` is to it what `--broadcast` is to the
+other two, for the same reason — content addressed by a CID cannot be withdrawn. It prints the
+`--file-uri` and `--file-type-extension` for the next step, and says in words that nothing has been
+submitted yet.
+
+Uploads go to the unauthenticated Kleros pinning endpoint, so there is still exactly one credential
+in this tool: the signing key. Point `--upload-url` at your own deployment of the same function if
+you would rather not use it. What was measured against it, and what could not be, is in
+[`docs/spec/06-attachment-upload.md`](docs/spec/06-attachment-upload.md) and
+[ADR-0012](docs/adr/0012-attachment-upload-is-in-scope-behind-its-own-command.md).
+
+### 6. Submit evidence
 
 ```bash
 kleros-disputant status --dispute 215        # is the evidence period still open?
@@ -315,7 +338,8 @@ artifacts, which differ from what `master` compiles to — a fingerprint test as
 every run and fails the build if upstream drifts, rather than letting a transaction find out
 ([ADR-0006](docs/adr/0006-deployment-imported-from-contracts-package.md)).
 
-The runtime dependencies are exactly two: `incur` and `viem`.
+The runtime dependencies are exactly two: `incur` and `viem`. `upload-file` speaks HTTP through
+Node's own `fetch`, `FormData` and `Blob`, so it adds no third.
 
 ## Where things live
 
@@ -329,8 +353,9 @@ The runtime dependencies are exactly two: `incur` and `viem`.
 
 This repo inherited no specification: one was written here from the deployed contracts, and every
 chain fact in it carries a marker saying how it was established — `[live]`, `[fork]`, `[abi]`,
-`[computed]`, `[client]`, `[inferred]`, `[maintainer]`. **`[client]` and `[inferred]` claims must
-not be depended on without a fork test**, and `[fork]` is what a claim becomes once one has settled
+`[computed]`, `[client]`, `[inferred]`, `[maintainer]`, and `[service]` for the one thing here that
+is not a contract. **`[client]` and `[inferred]` claims must not be depended on without a fork
+test**, and `[fork]` is what a claim becomes once one has settled
 it. `[live]` claims are stamped with a date and a block; re-run
 [`docs/spec/05-verification.md`](docs/spec/05-verification.md) §4 to refresh them.
 

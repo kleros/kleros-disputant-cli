@@ -19,10 +19,12 @@ overturned (`spec/appendix-a §3.5`).
 
 Status: bootstrapping. `src/core/`, `src/commands/` and the fork tests are complete — the pure
 functional core, the deployment pinned by a fingerprint test, the read layer, the transaction path,
-the four commands on incur, and `spec/05 §2`'s seven fork tests, which **broadcast on a fork** and
+the five commands on incur, and `spec/05 §2`'s seven fork tests, which **broadcast on a fork** and
 settled three of Appendix A's five unverified claims. `README.md` is written (step 13, out of
-order); still no skill, nothing published to npm, **no transaction broadcast on Arbitrum One**.
-Step 13's remainder, the skill, is next.
+order). `upload-file` was added out of build order on maintainer instruction and **has run against
+the live endpoint**; still no skill, nothing published to npm, **no transaction broadcast on
+Arbitrum One**. Step 13's remainder, the skill, is next — and it now has a fifth command to
+document.
 Build order: `HANDOFF §10`.
 
 ```
@@ -45,7 +47,9 @@ wins and is named.
 - **Evidence is operator-supplied and opaque.** Never read, fetch or interpret counterparty
   content; never dereference a URI found in on-chain data. Evidence is bytes on the way to a
   transaction: never parsed, never interpolated into anything executable, never allowed to
-  influence which call is made or with what arguments. `ADR-0007`, `spec/02 §4.3`
+  influence which call is made or with what arguments. The one read-back — `upload-file` fetching a
+  CID it just created, to compare against bytes it already holds — is not an exception to this and
+  `ADR-0012` says why. `ADR-0007`, `spec/02 §4.3`
 - **Creating a dispute spends money and cannot be undone.** Quote `arbitrationCost` with the
   byte-identical `extraData` immediately before sending, send **exactly** that, state the value in
   the envelope, and enforce the cost ceiling locally before simulating. Underpaying reverts;
@@ -78,9 +82,12 @@ wins and is named.
 - **Discovery happens upstream**, in `@kleros/agentkit`. Reads here are limited to what is needed
   to **refuse a bad write**; a read that cannot change the decision to sign does not belong here.
   `ADR-0001`, `CONTEXT.md`
-- **RPC only — no subgraph, no pinning, no HTTP client.** The write plane must not depend on an
-  indexer to decide whether to sign, the tool never pins to IPFS, and the credential surface stays
-  at exactly one signing key. Every URI is an operator-supplied input. `ADR-0009`
+- **No subgraph, and HTTP in exactly one command.** The write plane must not depend on an indexer
+  to decide whether to sign. `upload-file` pins an attachment and is the only command that speaks
+  HTTP: it never signs, reads the chain or loads a key, and `submit-evidence` **must not** grow a
+  `--file` flag — a dry run would have to publish or lie. The credential surface is still exactly
+  one signing key, because the endpoint is unauthenticated. A URI the operator *hands* the tool is
+  still never dereferenced. `ADR-0012` reverses `ADR-0009`; `spec/06` has what was measured.
 - **`submitEvidence` has no access control, no payment and no period gate**, so period discipline
   is this CLI's own policy: it **warns and never refuses**. The one hard refusal is a core dispute
   ID that does not exist, and the harm there is unreachability, not loss — the subgraph indexes it

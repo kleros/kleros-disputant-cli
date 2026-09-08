@@ -24,8 +24,11 @@ The following are **out of scope** and MUST NOT be implemented from this specifi
    reads here are those that can change the decision to sign.
 3. **Reading counterparty content.** This tool never fetches, parses or interprets evidence, a
    policy, or any URI found in on-chain data. [ADR-0007](../adr/0007-evidence-is-opaque-operator-supplied-bytes.md)
-4. **IPFS pinning.** Every URI is an input the caller supplies.
-   [ADR-0009](../adr/0009-the-cli-references-ipfs-and-never-pins.md)
+4. **Pinning from a command that signs.** Uploading an attachment *is* in scope, but only through
+   `upload-file`, which never signs, never reads the chain and never loads a key
+   ([06](./06-attachment-upload.md),
+   [ADR-0012](../adr/0012-attachment-upload-is-in-scope-behind-its-own-command.md)). `policyURI`
+   and `--template-uri` remain inputs the caller supplies.
 5. **ERC-20 arbitration fees.** ETH only, until [Appendix A §1](./appendix-a-unresolved.md) is
    settled. There is no `--fee-token` flag. [ADR-0008](../adr/0008-arbitration-fees-are-paid-in-eth-only.md)
 6. **Daemon or watcher mode.** Every command is one-shot and exits.

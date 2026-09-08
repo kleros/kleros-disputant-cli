@@ -16,7 +16,7 @@ claim someone already believed.
 | Aspect | Decision |
 | --- | --- |
 | Network | Arbitrum One (chain ID 42161) only |
-| Write surface | `DisputeResolver.createDisputeForTemplate`, `EvidenceModule.submitEvidence` |
+| Write surface | `DisputeResolver.createDisputeForTemplate`, `EvidenceModule.submitEvidence`. Off chain, one pinning endpoint |
 | Entry point | `DisputeResolver`. An EOA **cannot** call `KlerosCore.createDispute` |
 | Dispute kits | Classic (ID 1). Shutter, Gated and GatedShutter are out of scope; the ruler kits are refused by name |
 | Fee token | ETH only. The ERC-20 path is unresolved — [Appendix A §1](./appendix-a-unresolved.md) |
@@ -24,7 +24,7 @@ claim someone already believed.
 | Evidence | Inline JSON. Never a bare URI |
 | Shape | One-shot commands. No daemon, no watcher, no scheduling |
 | Inputs | Court, juror count, template body, ruling options, evidence text and every URI are **operator-supplied** |
-| IPFS | Referenced, never pinned. No HTTP client, no credential beyond the signing key |
+| IPFS | Referenced everywhere; uploaded only by `upload-file`, which never signs. No credential beyond the signing key |
 | Stack | TypeScript, `incur ~0.4.19`, `viem ^2.55.19`, Node ≥ 22 |
 
 ## Documents
@@ -37,12 +37,15 @@ claim someone already believed.
 | 03 | [CLI surface](./03-cli-surface.md) | Commands, options, exit codes, the JSON envelope, key handling |
 | 04 | [Transaction relaying](./04-transaction-relaying.md) | Simulate, estimate, send, track. Where `value` threads through |
 | 05 | [Verification](./05-verification.md) | Test plan and acceptance criteria |
+| 06 | [Attachment upload](./06-attachment-upload.md) | The one off-chain plane: `upload-file`, the endpoint, and what was measured against it |
 | A | [Appendix A: unresolved](./appendix-a-unresolved.md) | Every claim not verified, and every §14 claim this document corrects |
 
 ## Reading order
 
 `01` establishes the facts. `02` is the heart of the specification and depends on `01`. `03` and
-`04` are engineering concerns that depend on `02`. Read `00` first for orientation, and read
+`04` are engineering concerns that depend on `02`. `06` stands apart — it is the only document about
+a service rather than a contract, and nothing in `01`–`04` depends on it. Read `00` first for
+orientation, and read
 [Appendix A](./appendix-a-unresolved.md) before you rely on anything load-bearing.
 
 ## Conventions
@@ -65,6 +68,7 @@ claim someone already believed.
 | **[client]** | Read from the Kleros web client or subgraph source, not from the chain. **Not verified** |
 | **[inferred]** | Reasoned from source that is not the deployed code. **Not verified** |
 | **[maintainer]** | Stated by the Kleros v2 maintainers. Authoritative for intent and roadmap; **not** a substitute for a code-level check of what is deployed |
+| **[service]** | Measured against a live HTTP **service** on **2026-09-09**, not a contract. Weaker than every marker above it: there is no deployment to fingerprint and no bytecode to read, so it can change with no signal this repo can detect. Re-measure with [06 §5](./06-attachment-upload.md) |
 
 **[client]** and **[inferred]** claims MUST NOT be depended on without a fork test. They are
 collected in [Appendix A](./appendix-a-unresolved.md). A claim that a fork test has since settled is

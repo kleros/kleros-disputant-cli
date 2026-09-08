@@ -56,6 +56,17 @@ export type ErrorCode =
   // The node refused the signed transaction, so it was never submitted. Distinct
   // from a revert: there is no hash to check and nothing landed (`spec/04 §3`).
   | "BROADCAST_FAILED"
+  // Attachment upload — `spec/06 §6`. The only codes in this union that are not
+  // about a chain: `upload-file` never signs, so none of them can mean money was
+  // spent. `FILE_*` are refused locally, before any request (ADR-0012).
+  | "FILE_UNREADABLE"
+  | "FILE_EMPTY"
+  | "FILE_TOO_LARGE"
+  | "UPLOAD_FAILED"
+  // The gateway resolved the returned CID to different bytes. The endpoint's
+  // handler can truncate silently, so this is a refusal and not a warning
+  // (`spec/06 §4.2`).
+  | "UPLOAD_MISMATCH"
   // Option parsing. Every numeric option is `z.string()` and parsed here, so a
   // bad number fails with a stable code rather than incur's validation error
   // (`spec/03 §3.1`). Not in `§5.5`'s list, which that section says is not

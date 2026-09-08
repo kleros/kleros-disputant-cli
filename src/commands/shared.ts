@@ -27,8 +27,13 @@ import { loadSigner } from "../core/signer.js";
  * Exit codes are for shell callers and are **not** the machine contract: the
  * consuming agent sees an effectively binary status, so it branches on the
  * payload's `code` (`spec/03 §4`). The five buckets are therefore coarse, and
- * two placements are worth stating:
+ * four placements are worth stating:
  *
+ * - The three `FILE_*` codes are **1**: every one of them is refused before a
+ *   request is made, so they are validation in the same sense as a bad court ID.
+ * - `UPLOAD_FAILED` and `UPLOAD_MISMATCH` are **2**, which is why that bucket is
+ *   "chain, RPC **or upload-service** failure". Neither can mean money was
+ *   spent — `upload-file` holds no key.
  * - `BROADCAST_FAILED` is **2**, not 3. The node refused the signed transaction,
  *   so nothing was submitted and nothing reverted — there is no hash to check.
  * - `EFFECTIVE_MISMATCH` and `TRANSACTION_REVERTED` are **3**, the only bucket
@@ -51,11 +56,18 @@ const EXIT_CODES: Record<ErrorCode, number> = {
   COST_CEILING_EXCEEDED: 1,
   INSUFFICIENT_BALANCE: 1,
   DISPUTE_NOT_FOUND: 1,
-  // 2 — chain or RPC failure. Nothing was judged, so nothing can be concluded.
+  FILE_UNREADABLE: 1,
+  FILE_EMPTY: 1,
+  FILE_TOO_LARGE: 1,
+  // 2 — chain, RPC or upload-service failure. Nothing was judged, so nothing can
+  // be concluded. Neither upload code can mean money was spent: `upload-file`
+  // never signs.
   WRONG_CHAIN: 2,
   DEPLOYMENT_INCONSISTENT: 2,
   RPC_ERROR: 2,
   BROADCAST_FAILED: 2,
+  UPLOAD_FAILED: 2,
+  UPLOAD_MISMATCH: 2,
   // 3 — the transaction, or its outcome, went wrong.
   SIMULATION_REVERTED: 3,
   TRANSACTION_REVERTED: 3,
@@ -178,6 +190,37 @@ function quoteCommand(context: CtaContext, refused?: "court" | "jurors" | "kit")
 }
 
 /**
+ * After an upload, the command that consumes it.
+ *
+ * The only CTA in this CLI attached to a success. `upload-file` exists to hand
+ * two arguments to `submit-evidence`, and quoting them back with the dispute
+ * left as a placeholder is what makes the two-command split free
+ * (`spec/06 §7.3`). Nothing is quoted back when nothing was published — a check
+ * produced no URI to pass on.
+ */
+export function uploadSuccessCta(data: Record<string, unknown>): CtaBlock | undefined {
+  const fileURI = data.fileURI;
+  if (typeof fileURI !== "string") return undefined;
+
+  const extension = data.fileTypeExtension;
+  const withExtension = typeof extension === "string" ? ` --file-type-extension ${extension}` : "";
+
+  return {
+    description:
+      "The file is pinned and nothing has been submitted. Evidence is a separate transaction, " +
+      "and it needs the core dispute ID.",
+    commands: [
+      {
+        command:
+          `submit-evidence --dispute <id> --name "<short name>" --description @<file>` +
+          ` --file-uri ${fileURI}${withExtension}`,
+        description: "Submit evidence referencing this attachment",
+      },
+    ],
+  };
+}
+
+/**
  * The whole core→incur seam.
  *
  * **Only `details.hint` reaches the user** (`spec/03 §5.4`). Every error message
@@ -187,7 +230,7 @@ function quoteCommand(context: CtaContext, refused?: "court" | "jurors" | "kit")
  */
 export function finish<T>(
   c: {
-    ok: (data: T) => never;
+    ok: (data: T, meta?: { cta?: CtaBlock | undefined }) => never;
     error: (options: {
       code: string;
       message: string;
@@ -197,8 +240,19 @@ export function finish<T>(
   },
   result: KlerosResult<T>,
   context: CtaContext = {},
+  /**
+   * A CTA for a **success**, derived from the payload. Only `upload-file` uses
+   * one: its whole purpose is to produce two arguments for another command, and
+   * the CTA is what stops the split between them costing the agent a step
+   * (`spec/06 §7.3`). It is a function of the data rather than a value so that
+   * `run(c)` stays free of logic — it names the mapping, it does not perform it.
+   */
+  successCta?: (data: T) => CtaBlock | undefined,
 ): never {
-  if (result.success) return c.ok(result.data);
+  if (result.success) {
+    const cta = successCta?.(result.data);
+    return cta ? c.ok(result.data, { cta }) : c.ok(result.data);
+  }
 
   const cta = ctaFor(result.code, context);
   const hint =
