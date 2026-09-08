@@ -29,9 +29,16 @@ constant, so the check protects nobody and the false guarantee remains in the do
 ## The one hard refusal
 
 **A core dispute ID that does not exist.** That is not a policy judgement, it is a correctness
-failure with a silent mode: the subgraph does `Dispute.load(coreDisputeID.toString())` and **drops
-the evidence on the floor** when there is no such dispute. The transaction succeeds, gas is spent,
-an event is emitted, and the evidence is invisible in Court and to every indexer.
+failure with a silent mode: the transaction succeeds, gas is spent, an event is emitted, and the
+evidence is attached to nothing anyone will read.
+
+**The harm is unreachability, not loss** — and this ADR originally said otherwise. It claimed the
+subgraph does `Dispute.load(coreDisputeID.toString())` and drops such evidence on the floor. It
+does not: `subgraph/core/src/EvidenceModule.ts` calls `ensureClassicEvidenceGroup`, which
+**creates** the grouping entity when it is missing, so the evidence is indexed — under an ID no
+dispute references and no case page queries. The refusal survives the correction unchanged; only
+its reason moved. The error message **MUST NOT** claim the chain would reject the submission,
+because that is false and an agent may act on it. `spec/02 §4.2`, `spec/appendix-a §3.3`.
 
 The likely cause is passing an arbitrable-local dispute ID where the core ID belongs — the exact
 collision `CONTEXT.md` gives three separate glossary entries to. So this refusal earns its place:
