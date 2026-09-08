@@ -41,7 +41,8 @@ governs: `title`, `description`, `question`, `answers`, `policyURI`, `arbitrator
 _Avoid_: MetaEvidence (the v1 term for this; v2 renamed it), meta evidence, dispute metadata
 
 **Template ID**:
-The index `DisputeTemplateRegistry` assigns a template when it is registered. Reported in the
+The index `DisputeTemplateRegistry` assigns a template when it is registered. Not a dispute ID and
+not in step with one: 227 templates exist against 216 disputes. Reported in the
 `DisputeTemplate` and `DisputeRequest` events. This tool never supplies one — it emits a template
 body and the registry allocates the ID.
 _Avoid_: template hash, template CID (the inline path has neither)
@@ -114,7 +115,8 @@ _Avoid_: ArbitrableProxy, the Dispute Resolver dapp, dapp, integration
 **Core dispute ID**:
 The global dispute identifier in `KlerosCore.disputes[]`, reported by the `DisputeCreation` event.
 **This is the ID `submitEvidence` takes as its first argument** — pass an arbitrable-local ID
-instead and the evidence lands on chain but is invisible in Court and dropped by the subgraph.
+instead and the evidence lands on chain, is indexed under an ID nothing references, and is
+invisible in Court. It is not dropped; it is unreachable. `spec/02 §4.2`
 _Avoid_: dispute ID (unqualified — the ambiguity is the trap)
 
 **Local dispute ID**:
@@ -123,10 +125,12 @@ maps core → local. Needed only to read arbitrable-side state; it is never what
 _Avoid_: dispute ID (unqualified), internal ID, resolver ID
 
 **External dispute ID**:
-The third field of `DisputeResolver`'s `DisputeRequest` event. **Whether it is the local index or
-the arbitrator dispute ID is not verified** — every sampled log has them equal, because this
-resolver created nearly every dispute on the deployment. Do not build on the distinction until it
-is confirmed against the deployed source.
+The third field of `DisputeResolver`'s `DisputeRequest` event, and what the Kleros Court web
+client resolves evidence by. **Whether it is the local index or the arbitrator dispute ID is not
+verified** — all 216 logs have them equal, because this resolver created *every* dispute that
+exists on the deployment. The coincidence is total, so no test against production can distinguish
+the three IDs. Do not build on the distinction until it is confirmed against the deployed source.
+`spec/01 §7`
 _Avoid_: dispute ID (unqualified), foreign ID
 
 **Court**:

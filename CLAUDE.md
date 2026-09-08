@@ -10,14 +10,14 @@ line and `docs/adr/0001` for why it falls there.
 
 **The primary consumer is an autonomous LLM agent, not a human at a terminal.** A human is a debug
 surface only, so the CLI must be self-documenting. Unlike its sibling `kleros-juror-cli`, this repo
-has **no inherited specification**. One must be written here — `docs/spec/`, derived from the
-deployed contracts and pinned with live-verified vectors — and **it does not exist yet**; it is
-step 6 of the build order, and `HANDOFF_DISPUTANT_CLI.md` §14 is roughly its first 40%. Until it
-lands, a normative claim cites the contract and function by name rather than a section number
-nobody can honour.
+had **no inherited specification**. One was written here: **`docs/spec/`**, derived from the
+deployed contracts and pinned with vectors verified live on 2026-09-08. It **supersedes
+`HANDOFF_DISPUTANT_CLI.md` §14** — where the two disagree the spec is correct, and
+`docs/spec/appendix-a-unresolved.md` §3 lists every disagreement, because each one is a claim
+someone already believed. Cite it by section (`spec/01 §4.4`) the way the juror repo cites its own.
 
-Status: bootstrapping. Documentation and guards only — steps 1–5 of the build order. No domain
-logic, no commands, nothing published to npm, no transaction ever broadcast.
+Status: bootstrapping. Documentation, spec and guards only — steps 1–6 of the build order. No
+domain logic, no commands, nothing published to npm, no transaction ever broadcast.
 
 ```
 pnpm test             # unit + guard tests (a suite whose prerequisite is absent self-skips loudly)
@@ -46,11 +46,13 @@ on it without a fork test.
   quote `KlerosCore.arbitrationCost(extraData)` with the byte-identical `extraData` immediately
   before sending, send **exactly** that, and state the value in the envelope. A cost ceiling is
   enforced locally, before simulating. `ADR-0004`
-  > **The no-refund behaviour is inferred, not verified.** That overpaying buys extra jurors
-  > rather than returning change is read from `master` source, and `master` is not the deployed
-  > code. It is the most expensive unverified claim this repo relies on, so treat sending exactly
-  > `arbitrationCost` as the rule regardless, and settle it with the fork test that asserts
-  > `value == arbitrationCost` — which is on the done-list precisely because it also answers this.
+  > **The chain protects you against underpaying, not against overpaying.** Verified live: one
+  > wei short reverts with `ArbitrationFeesNotEnough()` (`0x38cd83c4`); twice the cost simulates
+  > cleanly and returns a dispute ID. Whether the excess buys extra jurors or is refunded is still
+  > **inferred** from `master` source — the most expensive unverified claim this repo relies on. So
+  > send exactly `arbitrationCost` regardless, and settle it with the fork test that asserts
+  > `value == arbitrationCost`, which is on the done-list precisely because it also answers this.
+  > `spec/01 §3.2`, `spec/appendix-a §2`
 - **`extraData` fails silently — pre-flight is the only defence.** `_arbitratorExtraData` is three
   32-byte words (court ID, juror count, dispute kit ID). A wrong court ID, a zero juror count or a
   malformed blob **does not revert**: the decoder substitutes General Court / default jurors /
@@ -93,9 +95,11 @@ on it without a fork test.
   surface stays at exactly one signing key. `ADR-0009`
 - **`submitEvidence` has no access control, no payment and no period gate.** Any period discipline
   is this CLI's own policy, not a contract guarantee — so it **warns, and never refuses**. The one
-  hard refusal is a core dispute ID that does not exist, because the subgraph drops evidence for an
-  unknown dispute on the floor. Do not add a client-side party check and present it as a guarantee.
-  `ADR-0011`
+  hard refusal is a core dispute ID that does not exist. Say why correctly: the subgraph does
+  **not** drop that evidence — `ensureClassicEvidenceGroup` creates the grouping entity on demand,
+  so the evidence is indexed where nothing references it. The harm is unreachability, not loss, and
+  claiming the chain would reject it is false. Do not add a client-side party check and present it
+  as a guarantee. `ADR-0011`, `spec/02 §4.2`
 - **Never print the private key**, and never accept one from the environment or the command line.
 - **The disputant is not the juror.** A different actor, a different key. This tool cannot detect a
   violation on chain, so it is an operator responsibility — say so, and do not promise a check that
@@ -119,9 +123,13 @@ Paths *below* it do not, which is why the build shim reaches its leaf modules by
 > The package's `.sol` sources are compiled from `master` and are **not the deployed code**. They
 > diverge for exactly the contracts this tool needs: the deployed `DisputeResolver` exposes
 > `governor()` rather than `owner()`, has both create functions, emits a 5-argument
-> `DisputeRequest`, and carries **zero custom errors** — so a live revert arrives as raw data with
-> no name and `reverts.ts` must map **by selector, not by name**. Bind to `mainnetViem.*Abi` and
-> pin a fingerprint test; that test is what makes the import safe rather than merely convenient.
+> `DisputeRequest`, and carries **zero custom errors**. That last one does *not* mean its reverts
+> are anonymous: verified live, `DisputeResolver`'s own guards are `require` strings that decode as
+> `Error(string)`, while the `KlerosCore` errors it forwards arrive as bare selectors named in
+> `klerosCoreAbi` but not in the ABI of the contract that was called. So `reverts.ts` needs
+> **both** — a string decoder and a selector table spanning both ABIs. Bind to `mainnetViem.*Abi`
+> (a real export of `cjs/deployments`, not a name the shim invents) and pin a fingerprint test;
+> that test is what makes the import safe rather than merely convenient. `spec/01 §5`
 
 Do **not** add `@kleros/kleros-sdk` as a runtime dependency: its `DisputeDetailsSchema` is a
 *lenient* parser for third-party blobs, and an authoring schema must be **strict** — the exact
@@ -150,6 +158,20 @@ which is the only part of `details` that reaches the user.
 
 `CONTEXT.md` is the glossary — use its terms, avoid the synonyms it lists. `docs/adr/` records the
 decisions a reader would otherwise question. Convention: `docs/agents/domain.md`.
+
+`docs/spec/` is the normative specification — RFC 2119 language, every chain fact marked with how
+it was verified, and test vectors that bind the payload builders to production. Read it before
+writing domain logic, and cite it by section.
+
+| # | Document | Read it for |
+| --- | --- | --- |
+| [00](docs/spec/00-overview.md) | Overview | Non-goals, actors, both write flows, the normative summary |
+| [01](docs/spec/01-onchain-reference.md) | On-chain reference | Addresses, ABI provenance, reverts, events, the three dispute IDs |
+| [02](docs/spec/02-payload-construction.md) | Payload construction | `extraData`, cost arithmetic, template and evidence JSON, the vectors |
+| [03](docs/spec/03-cli-surface.md) | CLI surface | Commands, options, exit codes, the JSON envelope, key handling |
+| [04](docs/spec/04-transaction-relaying.md) | Transaction relaying | Simulate, estimate, send, track, and where `value` threads through |
+| [05](docs/spec/05-verification.md) | Verification | Test plan, acceptance criteria, the live re-check script |
+| [A](docs/spec/appendix-a-unresolved.md) | Unresolved | Every unverified claim, and every §14 claim the spec corrects |
 
 | ADR | Decision |
 | --- | --- |
@@ -199,9 +221,11 @@ package's `exports` map "declares no deep subpaths" when `./cjs/deployments` is 
 accurate where "read-only" is not. Treat it as a **peer CLI the agent also calls**, never as a
 library — its `exports` map exposes only `.`.
 
-`HANDOFF_DISPUTANT_CLI.md` at the repo root is the bootstrapping plan: §10 the build order, §14 the
-twice-verified contract facts, §15 the vocabulary. Items in §14 marked *(inferred)* or
-*(client-sourced)* are **not** verified — fork-test them before depending on them.
+`HANDOFF_DISPUTANT_CLI.md` at the repo root is the bootstrapping plan: §10 the build order, §15 the
+vocabulary. **§14 is superseded by `docs/spec/`** — it was the first draft of the on-chain
+reference, several of its claims are wrong or incomplete, and
+`docs/spec/appendix-a-unresolved.md` §3 says which.
+Read the spec instead; read §14 only to understand where a stale belief came from.
 
 ## Agent skills
 
