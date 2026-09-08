@@ -26,10 +26,15 @@ export const NO_DATA_MAPPINGS = "";
  * (`lib/src/dataMappings/utils/disputeDetailsSchema.js`).
  *
  * Copied rather than approximated: this is the predicate the Kleros Court web
- * client applies, so a URI this accepts and Court rejects would render degraded
- * with the money already spent. Note the `ipfs://` branch requires a path
- * segment — `ipfs://<cid>` alone does not pass, and that is the canonical
- * behaviour, not an oversight here.
+ * client applies, so a URI this accepts and Court rejects throws a `ZodError` on
+ * read that the web client swallows into a generic invalid-data message naming
+ * no field — with the money already spent.
+ *
+ * The two branches are **not** symmetrical, and the `ipfs://` one is the trap:
+ * it takes exactly one alphanumeric path segment with at most one `.extension`,
+ * so `ipfs://<cid>`, `ipfs://<cid>/docs/policy.json` and `ipfs://<cid>/my-policy.json`
+ * all fail while `/ipfs/<cid>/docs/my-policy_v2.json` passes. That is the
+ * canonical behaviour, not an oversight here (`spec/02 §3.4`).
  */
 const MULTIADDR =
   /^\/(?:ip4|ip6|dns4|dns6|dnsaddr|tcp|udp|utp|tls|ws|wss|p2p-circuit|p2p-webrtc-star|p2p-webrtc-direct|p2p-websocket-star|onion|ipfs)(\/[^\s/]+)+$|^ipfs:\/\/[a-zA-Z0-9]+\/[a-zA-Z0-9]+(\.[a-zA-Z0-9]+)?$/;
@@ -206,7 +211,10 @@ export function parseTemplate(input: unknown): KlerosResult<DisputeTemplate> {
       return err(
         "RULING_OPTIONS_INVALID",
         `Ruling option ${index} is 0x0, which is permanently reserved for "Refuse to Arbitrate ` +
-          '/ Invalid" and is never submitted. Ids run from 0x1 upward. Nothing was sent.',
+          '/ Invalid". Submitting it does not add an option: the Kleros Court web client ' +
+          "overwrites that entry with the reserved answer, so the option you are paying to offer " +
+          "disappears while the ruling-option count still includes it. Ids run from 0x1 upward. " +
+          "Nothing was sent.",
         { index, id: answer.id },
       );
     }

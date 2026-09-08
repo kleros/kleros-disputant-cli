@@ -140,10 +140,20 @@ describe("policyURI", () => {
     expect(passOf({ ...t1(), policyURI }).policyURI).toBe(policyURI);
   });
 
-  it("rejects an ipfs:// URI with no path, as the canonical refinement does", () => {
-    expect(refusalOf({ ...t1(), policyURI: "ipfs://QmXFrGGCpTGZq" }).code).toBe(
-      "POLICY_URI_INVALID",
-    );
+  it.each([
+    ["no path segment", "ipfs://QmXFrGGCpTGZq"],
+    ["a second path segment", "ipfs://QmXFrGGCpTGZq/docs/policy.json"],
+    ["a non-alphanumeric segment", "ipfs://QmXFrGGCpTGZq/my-policy.json"],
+  ])("rejects an ipfs:// URI with %s, as the canonical refinement does", (_label, policyURI) => {
+    // The branches are not symmetrical, and this is the asymmetry: every one of
+    // these passes under the `/ipfs/…` form.
+    expect(refusalOf({ ...t1(), policyURI }).code).toBe("POLICY_URI_INVALID");
+  });
+
+  it("accepts under /ipfs/ what it refuses under ipfs://", () => {
+    const path = "QmXFrGGCpTGZq/docs/my-policy_v2.json";
+    expect(passOf({ ...t1(), policyURI: `/ipfs/${path}` }).policyURI).toBe(`/ipfs/${path}`);
+    expect(refusalOf({ ...t1(), policyURI: `ipfs://${path}` }).code).toBe("POLICY_URI_INVALID");
   });
 
   it("rejects an empty policyURI", () => {
@@ -161,8 +171,10 @@ describe("ruling options", () => {
   });
 
   it("rejects the reserved 0x0 answer", () => {
-    // `0x0` is permanently "Refuse to Arbitrate / Invalid". Submitting it makes
-    // the count and the array agree while the options render off by one.
+    // `0x0` is permanently "Refuse to Arbitrate / Invalid". The SDK's
+    // `populateTemplate` replaces a submitted `0x0` entry in place rather than
+    // rejecting it, so nothing about the count ever looks wrong — the operator
+    // simply loses the option they paid to offer (`spec/02 §3.3`).
     const refusal = refusalOf({ ...t1(), answers: answers("0x0", "0x1", "0x2") });
     expect(refusal.code).toBe("RULING_OPTIONS_INVALID");
     expect(refusalOf({ ...t1(), answers: answers("0x00", "0x1") }).code).toBe(

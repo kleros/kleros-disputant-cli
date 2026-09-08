@@ -189,6 +189,11 @@ Two notes on the canonical schema:
   [Appendix A §3.4](./appendix-a-unresolved.md).)* This CLI does not author it, so its strict
   schema refuses a template carrying one; that is an authoring choice, not a claim about the
   canonical schema.
+  **The field is version-dependent.** **[client]** A `v2.3.1`-era reference enumerates the output
+  fields as "8 required / 7 optional" with no `extraEvidences` row, so the field appears to have
+  been **added between 2.3.1 and 2.4.0**. A claim about "the canonical schema" is therefore only
+  true of a version, and a 2.3.1 consumer *strips* an `extraEvidences` key rather than defaulting
+  it. Name the version whenever this section is cited.
 - The canonical schema is a plain `z.object`, so it is **neither** `.strict()` **nor**
   `.passthrough()`: unknown keys are silently stripped when it parses, not rejected. That leniency
   is appropriate for a consumer and wrong for an author.
@@ -200,6 +205,11 @@ parser. [ADR-0010](../adr/0010-a-strict-authoring-schema-not-the-sdk-parser.md)
 
 - Unknown keys **MUST** be rejected, not stripped. A typo'd field name in an operator's template is
   a mistake to surface, not to silently drop into an irreversible paid transaction.
+- The authoring schema **MAY** be stricter than the canonical one on a field the canonical one
+  leaves open, and **MUST** say so where it is, so a reader does not mistake the extra strictness
+  for a canonical constraint. **[client]** The canonical schema types `description`, `question` and
+  the answers' `description` as a bare `z.string()` and so accepts `""`, and applies no validation
+  at all to `frontendUrl`. Requiring those to be non-empty is this CLI's authoring policy.
 - `@kleros/kleros-sdk` **MUST NOT** become a runtime dependency. Its compiled schema **MAY** be
   imported in a devDependency test, to assert that what the CLI emits is accepted by the canonical
   definition. That test asserts one direction only, and **MUST NOT** be read as asserting the other.
@@ -211,9 +221,24 @@ parser. [ADR-0010](../adr/0010-a-strict-authoring-schema-not-the-sdk-parser.md)
 - Submitted IDs **MUST** run from `0x1` upward, normalised as `"0x" + BigInt(id).toString(16)`.
 - `_numberOfRulingOptions` **MUST** equal `answers.length`, and **MUST** be at least 2.
 
-Because `0x0` is excluded, the count and the array length agree — that is the whole reason to state
-it. A CLI that includes the reserved answer will pass its own arithmetic check and create a dispute
-whose options are off by one.
+**[client]** The harm is not an arithmetic mismatch — an earlier draft of this section said it was,
+and that mechanism is wrong. The SDK's `populateTemplate` **replaces a submitted `0x0` answer in
+place**, keeping only its `description`, and prepends the reserved answer when none is present:
+
+```js
+const templateRTAIndex = dispute.answers.findIndex((a) => a.id && BigInt(a.id) === BigInt(0));
+if (templateRTAIndex !== -1) { dispute.answers[templateRTAIndex] = { ...RefuseToArbitrateAnswer, … }; }
+else { dispute.answers = [RefuseToArbitrateAnswer, ...dispute.answers]; }
+```
+
+So `answers.length` never changes and no count ever disagrees. What is lost is the operator's own
+option: its `title` is silently overwritten with "Refuse to Arbitrate / Invalid" and it is marked
+`reserved`, while `_numberOfRulingOptions` still counts it and the fee has already been paid for it.
+A dispute offering three options renders two. Read from
+`@kleros/kleros-sdk@2.4.0`, `lib/src/dataMappings/utils/populateTemplate.js`, on 2026-09-08.
+
+Excluding `0x0` is therefore what keeps every option the operator paid for on the ballot, and it is
+also why the count and the array length agree.
 
 ### 3.4 `policyURI`
 
@@ -221,14 +246,26 @@ whose options are off by one.
 `policyURI` is created successfully and jurors are still drawn; it renders degraded in the Kleros
 Court web client, whose `isTemplateValid` uses the schema above.
 
+**[client]** "Degraded" is worth stating precisely, because it is what makes this a `MUST` rather
+than a `SHOULD`: the SDK's schema requires `policyURI`, so such a template throws a `ZodError` in
+`populateTemplate` on read — and the web client swallows every non-viem SDK error, resolving the
+query with an empty `DisputeDetails` and showing a generic invalid-data message that names no
+field. The operator gets no diagnostic at all, after paying.
+
 The CLI **MUST** enforce the multiaddr form anyway, and **MUST** refuse a plain `https://` URL,
 because the failure it prevents is invisible until after the money is spent.
 
-**[client]** The refinement is the SDK's `isMultiaddr`, and it has two branches: a
-`/<protocol>/<segment>…` path form whose protocol list includes `ipfs`, and an `ipfs://` form that
-**requires a path segment** — `ipfs://<cid>` alone does not pass, `ipfs://<cid>/policy.json` does.
-The CLI **SHOULD** transcribe that predicate rather than approximate it: a URI the CLI accepts and
-the Kleros Court web client rejects renders degraded with the money already spent.
+**[client]** The refinement is the SDK's `isMultiaddr`, and its two branches are **not**
+symmetrical. The CLI **SHOULD** transcribe the predicate verbatim rather than approximate it: a URI
+the CLI accepts and the Kleros Court web client rejects is only discovered after the money is spent.
+
+| Form | Accepts |
+| --- | --- |
+| `/<protocol>/…`, protocol list including `ipfs` | one **or more** segments of any non-space, non-slash characters. `/ipfs/<cid>`, `/ipfs/<cid>/docs/my-policy_v2.json` |
+| `ipfs://…` | **exactly one** path segment, alphanumeric only, with at most one `.extension`. `ipfs://<cid>/policy.json` and `ipfs://<cid>/policy` pass; `ipfs://<cid>`, `ipfs://<cid>/docs/policy.json` and `ipfs://<cid>/my-policy.json` all **fail** |
+
+The `ipfs://` branch is the trap: a hyphen, an underscore or a second path segment fails it while
+the same path passes under `/ipfs/…`. Prefer the `/ipfs/…` form.
 
 ### 3.5 Test vector — T1
 
