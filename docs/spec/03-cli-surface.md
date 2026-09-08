@@ -54,7 +54,13 @@ index: `c.options["rpc-url"]`.
 | `--rpc-url` | string | all | Arbitrum One. The chain assertion runs against whatever it points at |
 | `--key-file` | string | writes | Path to the signing key. **The key is never accepted from the environment or the command line** |
 | `--broadcast` | boolean | writes | Default `false`. Without it the command stops after simulation |
-| `--max-fee-gwei` | string | writes | Gas fee ceiling |
+| `--max-fee-gwei` | string | writes | Gas fee ceiling, in gwei. It caps `maxFeePerGas` and **not** the arbitration fee, which is not gas |
+
+**The option set above is closed**, and the receipt timeout is the one thing that pays for it.
+There is no `--timeout`: how long to wait before reporting `status: "unknown"` is fixed in
+`src/commands/shared.ts`, because nothing is *decided* by the number — a timeout produces a
+success that says the tool stopped watching ([04 §3](./04-transaction-relaying.md)), so exposing it
+would add a surface without adding a choice.
 
 ### 3.2 `create-dispute`
 
@@ -86,6 +92,10 @@ for. [ADR-0008](../adr/0008-arbitration-fees-are-paid-in-eth-only.md)
 command line and out of the process table. A CLI that adds that **MUST NOT** also add a flag that
 reads them from the environment.
 
+Both take `@path` to read a file and `-` to read stdin. Passing `-` for **both** is refused: stdin
+can only be drained once, and the second read would come back empty and be rejected as a blank
+field — a true refusal with a misleading reason.
+
 ## 4. Exit codes
 
 Exit codes exist for shell callers. **They are not the machine contract** — the consuming agent
@@ -103,6 +113,15 @@ The map **MUST** be a `Record<ErrorCode, number>` over the error-code union, **n
 `Record<string, number>` with a `?? 1` default. The juror CLI has two codes that fall through its
 default; nothing is broken by it today, and that is exactly why it went unnoticed. An exhaustive
 map makes the next added code a type error.
+
+Five buckets over two dozen codes leaves three placements worth stating, because each one is a
+claim about what the caller still holds:
+
+| Code | Exit | Why not the obvious bucket |
+| --- | --- | --- |
+| `BROADCAST_FAILED` | 2 | The node refused the signed transaction, so nothing was submitted and nothing reverted. There is no hash to check. Not 3 |
+| `TRANSACTION_REVERTED` | 3 | Mined and reverted: a hash exists and gas was spent. Distinct from `SIMULATION_REVERTED`, where nothing was sent |
+| `EFFECTIVE_MISMATCH` | 3 | Not a revert, but the only bucket that does not imply nothing was sent. Reading it as validation would tell a caller the money is still theirs |
 
 ## 5. Output
 
@@ -187,6 +206,11 @@ whole object makes messages unreadable for the consuming agent.
 **incur prefixes the binary name onto every CTA command**, so a CTA can only ever be a subcommand
 of this CLI. A shell remedy or a call to a *different* tool goes in `details.hint`, never in a CTA.
 
+A CTA **MUST NOT** re-offer the invocation that just failed. The consumer is an agent with no human
+above it, so a suggestion reading `arbitration-cost --court 99 …` after court 99 was refused is an
+instruction to run the failing command again, and nothing in that loop breaks it. The refused word
+becomes a placeholder; the words that were fine are quoted back.
+
 ### 5.5 Error codes
 
 Not exhaustive — the list grows with the implementation — but these are fixed by this
@@ -209,6 +233,7 @@ specification and **MUST NOT** be renamed.
 | `EVIDENCE_INVALID` | The evidence document failed the strict schema |
 | `EFFECTIVE_MISMATCH` | The created dispute's court, jurors or kit differ from those requested |
 | `SIMULATION_REVERTED` | `simulateContract` reverted. Carries the decoded reason or the raw selector |
+| `TRANSACTION_REVERTED` | The transaction was mined and reverted. The `message` **MUST** name the hash, and for `create-dispute` **MUST** say the fee was returned with the revert while the gas was not |
 
 ## 6. Signer
 

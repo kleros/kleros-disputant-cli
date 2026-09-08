@@ -16,9 +16,10 @@ writing domain logic and cite it by section (`spec/01 §4.4`). It **supersedes
 `HANDOFF_DISPUTANT_CLI.md` §14**, and `spec/appendix-a §3` lists every disagreement, because each
 one is a claim someone already believed.
 
-Status: bootstrapping. `src/core/` is complete — the pure functional core, the resolved deployment
-pinned by a fingerprint test, the read layer that feeds it, and the transaction path; still no
-commands, no `README.md`, nothing published to npm, no transaction ever broadcast. Step 11 is next.
+Status: bootstrapping. `src/core/` and `src/commands/` are complete — the pure functional core, the
+deployment pinned by a fingerprint test, the read layer, the transaction path, and the four
+commands on incur, with the read paths verified live against Arbitrum One; still no `README.md`, no
+skill, nothing published to npm, **no transaction ever broadcast**. Step 12 is next.
 Build order: `HANDOFF §10`.
 
 ```

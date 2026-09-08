@@ -88,6 +88,13 @@ Normative:
 - The quote **MUST** happen after pre-flight passes and before `simulateContract`, so a refusal
   never costs an RPC round trip that implies the call is going to happen.
 - The cost ceiling **MUST** be enforced **before** simulating, not after.
+- `balance < value` **MUST** be refused before simulating, as `INSUFFICIENT_BALANCE`. **[live]** The
+  Arbitrum One public endpoint enforces balance inside `eth_call`, so an unfunded account otherwise
+  fails simulation and is reported as `SIMULATION_REVERTED` — exit 3, "the chain rejected the call"
+  — when the answer is "fund the account", exit 1. A consuming agent branches on the code, and
+  those two ask for different things. It is a **lower bound**, knowable with no gas estimate, which
+  is exactly what lets it run this early; §2's `balance < fee + value` still runs afterwards and is
+  the one that includes gas.
 - The value **MUST** be stated in the envelope for every outcome, including `simulated` — the
   simulate-only envelope is the one an agent reads to decide whether to broadcast.
 
