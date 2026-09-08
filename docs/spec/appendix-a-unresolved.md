@@ -161,27 +161,23 @@ Not defects. Decisions this specification deliberately leaves to the implementat
 3. **How is evidence-period pressure expressed?** [01 §9](./01-onchain-reference.md) rules out a
    fixed second count — the periods span 600 s to 540 000 s. A fraction of the court's own
    `timesPerPeriod[0]` is the obvious replacement, but the threshold is unchosen.
-4. **How is court existence established?** Found while building the deployment fingerprint.
-   `preflight.ts` takes `courtsLength` in `ChainFacts` and refuses any `courtID >= courtsLength`,
-   but **`KlerosCore` exposes no courts-length call** **[abi]**: the ABI has `getDisputeKitsLength()`
-   and no equivalent, and Solidity generates no length getter for a public array. So
-   [01 §8](./01-onchain-reference.md)'s read surface cannot populate the facts struct as written.
-
-   **Resolved in principle [maintainer]:** probe `getTimesPerPeriod(courtID)`, which reverts for a
-   court that does not exist. **[live]** Verified against Arbitrum One: courts 1–34 resolve, 35 and
-   99999 revert — and `getTimesPerPeriod` reverts with a **decodable** `Array index is out of
-   bounds.` panic where `courts()` reverts with no reason at all, so it is the better probe on
-   diagnosis quality as well as on call count. It is already in the read surface for the
-   evidence-period warning.
-
-   What remains is the implementation change: `ChainFacts.courtsLength: bigint` becomes a
-   court-existence fact, and the `COURT_OUT_OF_RANGE` message loses its "courts are 1 through N"
-   bound, which nothing can supply without a second mechanism. That bound is advisory and the hint
-   already points at `kleros court list`.
-5. **Where does the ruler refusal belong?** `preflight.ts` compares `REFUSED_ADDRESSES` against the
-   resolved **dispute kit** address, and a ruler can never be one: **[live]** KlerosCore's five
-   registered kits are the NULL kit plus four `DisputeKit*` contracts, and neither ruler is among
-   them. The check cannot fire as wired. The hazard [01 §1](./01-onchain-reference.md) means to
-   prevent is *acting on* a ruler as the write target, which today is prevented by resolving that
-   target from the package and pinning it in `deployment.test.ts`. Either move the refusal onto the
-   write target, where it can bite, or delete it and say the pinned address is the control.
+4. ~~**How is court existence established?**~~ **Closed.** `KlerosCore` exposes no courts-length
+   call **[abi]** — the ABI has `getDisputeKitsLength()` and no equivalent, and Solidity generates
+   no length getter for a public array — so `01 §8`'s read surface could not populate
+   `ChainFacts.courtsLength` as it was written. Court existence is now probed with
+   `getTimesPerPeriod(courtID)`, which reverts past the end of the array **[maintainer]**.
+   **[live]** Verified against Arbitrum One: courts 1 and 34 resolve, 35 and 99999 revert, and
+   `getTimesPerPeriod` reverts with a decodable `Array index is out of bounds.` panic where
+   `courts()` reverts with no reason at all — so it wins on diagnosis quality as well as on call
+   count, and it is already read for the evidence-period warning. `ChainFacts.courtsLength: bigint`
+   became `courtExists: boolean | undefined`. The cost accepted is that a refusal can no longer
+   quote an upper bound; the hint points at `kleros court list`.
+5. ~~**Where does the ruler refusal belong?**~~ **Closed: nowhere — the pinned address is the
+   control.** `preflight.ts` compared `REFUSED_ADDRESSES` against the resolved *dispute kit*
+   address, and a ruler can never be one: **[live]** KlerosCore's five registered kits are the NULL
+   kit plus four `DisputeKit*` contracts. The check could not fire and was deleted, along with the
+   `DISPUTE_KIT_REFUSED` error code and `ChainFacts.kitAddress`, which had no other consumer and so
+   could not change the decision to sign. What replaces it is a build-time assertion in
+   `deployment.test.ts`: the write target is resolved from the package and asserted not to be the
+   ruler, so a ruler can only become the target through an upstream change that fails the build
+   first. `KlerosCoreRuler` is out of scope entirely **[maintainer]**.

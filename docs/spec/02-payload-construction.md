@@ -43,12 +43,11 @@ None of them can be delegated to simulation.
 
 | Check | Refuses when | Source |
 | --- | --- | --- |
-| Court in range | `courtID == 0` or `courtID >= courts.length` | `courts()` reverting past the end |
+| Court exists | `courtID == 0`, or `getTimesPerPeriod(courtID)` reverts | `getTimesPerPeriod()` reverting past the end of the array |
 | Court enabled | `courts(courtID).disabled == true` | `courts()` |
 | Juror count | `jurors < 1` | local |
 | Kit in range | `kitID == 0` or `kitID >= disputeKits.length` | `disputeKits()` |
 | Kit supported | `isSupported(courtID, kitID) == false` | `isSupported()`, **never cached** |
-| Kit not a ruler | the resolved kit address is a ruler contract | [01 §1](./01-onchain-reference.md) |
 | Ruling options | `numberOfRulingOptions < 2` | local; the contract also refuses, with a string |
 | Options agree | `numberOfRulingOptions != answers.length` | local; **the contract does not check this** |
 

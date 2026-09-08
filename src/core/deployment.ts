@@ -4,7 +4,6 @@ import {
   mainnetViem,
 } from "@kleros/kleros-v2-contracts/cjs/deployments";
 import type { Address } from "viem";
-import type { RefusedAddress } from "./preflight.js";
 
 /**
  * The deployed surface on Arbitrum One, **imported** from
@@ -71,25 +70,25 @@ export const DISPUTE_RESOLVER_ABI = mainnetViem.disputeResolverAbi;
 export const EVIDENCE_MODULE_ABI = mainnetViem.evidenceModuleAbi;
 
 /**
- * The governance override contract, refused **by name** so a refusal says what was
- * hit rather than "unknown address". `spec/01 §1`.
+ * `DisputeResolverRuler`, the governance override tool.
  *
- * `KlerosCoreRuler` is deliberately absent: it is a developer tool for arbitrable
- * developers and has no bearing on this CLI. Listing it would imply a hazard that
- * does not exist here.
+ * **There is no runtime refusal, and that is the decision.** `preflight.ts` used
+ * to compare this against the resolved dispute kit, and a ruler can never be one:
+ * KlerosCore's five registered kits are the NULL kit plus four `DisputeKit*`
+ * contracts **[live]**, so the check could not fire. It was deleted rather than
+ * relocated.
  *
- * Shaped as `preflight.ts`'s `RefusedAddress` so the pure core can compare against
- * it without importing the deployment.
+ * **The pinned address is the control.** The write target is resolved from the
+ * contracts package and its address is asserted in `deployment.test.ts`, which
+ * also asserts that it is not this one. A ruler can therefore only become the
+ * write target through an upstream change that fails the build first — a
+ * build-time guarantee, which is stronger than a runtime check against a value
+ * the same source supplied. `spec/01 §1`, `spec/appendix-a §4.5`.
  *
- * **[live]** Note that `preflight.ts` currently compares this list against the
- * resolved *dispute kit* address, and a ruler can never be one: KlerosCore's five
- * registered kits are the NULL kit plus four `DisputeKit*` contracts. The check
- * cannot fire as wired. What actually protects the write target is the pinned
- * address in `deployment.test.ts`. See `spec/appendix-a §4.5`.
+ * `KlerosCoreRuler` is deliberately absent: a developer tool for arbitrable
+ * developers, with no bearing on this CLI.
  */
-export const REFUSED_ADDRESSES = [
-  {
-    address: getDeployedAddress(mainnetViem.disputeResolverRulerConfig, ARBITRUM_ONE_CHAIN_ID),
-    name: "DisputeResolverRuler",
-  },
-] as const satisfies readonly RefusedAddress[];
+export const DISPUTE_RESOLVER_RULER = {
+  address: getDeployedAddress(mainnetViem.disputeResolverRulerConfig, ARBITRUM_ONE_CHAIN_ID),
+  name: "DisputeResolverRuler",
+} as const satisfies { address: Address; name: string };

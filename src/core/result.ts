@@ -25,7 +25,6 @@ export type ErrorCode =
   | "JURORS_INVALID"
   | "DISPUTE_KIT_OUT_OF_RANGE"
   | "DISPUTE_KIT_NOT_SUPPORTED"
-  | "DISPUTE_KIT_REFUSED"
   // Payload authoring — `spec/02 §3`, `§4`
   | "TEMPLATE_INVALID"
   | "RULING_OPTIONS_INVALID"

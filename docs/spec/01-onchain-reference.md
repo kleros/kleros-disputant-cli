@@ -23,10 +23,15 @@ Everything in this document was read from the deployment artifacts shipped in
 `KlerosCore` above, and `DisputeResolver.templateRegistry()` returns the registry above. The CLI
 **SHOULD** assert both at startup rather than assume the registry entries agree with each other.
 
-`DisputeResolverRuler` is a governance override tool. The CLI **MUST** refuse to act on it, by
-address, with an error that names it. `KlerosCoreRuler` is **not** in scope: it is a developer tool
-for arbitrable developers **[maintainer]**, and listing it would imply a hazard this CLI does not
-face.
+`DisputeResolverRuler` is a governance override tool, and **the pinned address is the control**.
+There is no runtime refusal: the write target is resolved from the contracts package and its address
+is asserted in the fingerprint test, which also asserts that it is not the ruler, so a ruler can only
+become the write target through an upstream change that fails the build first. That is a build-time
+guarantee, and it is stronger than a runtime check against a value the same source supplied. A
+pre-flight check against the resolved *dispute kit* was tried and deleted: a ruler can never be a
+dispute kit — KlerosCore's five registered kits are the NULL kit plus four `DisputeKit*` contracts
+**[live]** — so it could not fire. `KlerosCoreRuler` is **not** in scope at all: a developer tool for
+arbitrable developers **[maintainer]**.
 
 ### 1.1 Importing the deployment
 
@@ -384,10 +389,18 @@ Only reads that can change the decision to sign belong here. **[abi]**, selector
 | `isSupported(uint96, uint256) → bool` | `KlerosCore` | Kit is enabled in that court. **Never cached** |
 | `arbitrationCost(bytes) → uint256` | `KlerosCore` | The exact value to send. **Overloaded** — see below |
 | `disputes(uint256) → (courtID, arbitrated, period, ruled, lastPeriodChange)` | `KlerosCore` | The dispute exists; its period, for the evidence warning |
-| `getTimesPerPeriod(uint96) → uint256[4]` | `KlerosCore` | The period deadline, for the evidence warning |
+| `getTimesPerPeriod(uint96) → uint256[4]` | `KlerosCore` | **Court existence** (it reverts past the end of the array), and the period deadline for the evidence warning |
 | `version()` | `KlerosCore`, `EvidenceModule` | A **warning** on mismatch, never a failure |
 | `getBalance` | — | `INSUFFICIENT_BALANCE`, which **MUST** include `value` |
 | `getBlock().timestamp` | — | **Chain time.** `Date.now()` **MUST NOT** be used for deadline arithmetic |
+
+**[live]** There is **no courts-length call.** KlerosCore's ABI has `getDisputeKitsLength()` and no
+equivalent for courts, and Solidity generates no length getter for a public array, so court
+existence **MUST** be established by probing `getTimesPerPeriod(courtID)`, which reverts past the
+end. It reverts with a **decodable** `Array index is out of bounds.` panic where `courts(n)` reverts
+with no reason at all, so it is also the better diagnosis. Verified against Arbitrum One: courts 1
+and 34 resolve, 35 and 99999 revert. A consequence the CLI **MUST** accept is that no refusal can
+quote an upper bound — there is nothing to read one from, and `kleros court list` is the hint.
 
 **[abi]** `arbitrationCost` is **overloaded**: `arbitrationCost(bytes)` and
 `arbitrationCost(bytes,address)`, the second taking a fee token. That second form is the ERC-20 path

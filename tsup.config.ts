@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["src/cli.ts"],
+  entry: ["src/cli.ts", "src/index.ts"],
   format: ["esm"],
   target: "node22",
   clean: true,
@@ -21,7 +21,8 @@ export default defineConfig({
       ),
     };
   },
-  dts: false,
+  // The package advertises `types`, so the library entry needs declarations.
+  dts: true,
   sourcemap: true,
   // The bundled deployment modules are CommonJS and `require("viem")`, which esbuild
   // cannot satisfy in ESM output while viem stays external — its fallback throws on

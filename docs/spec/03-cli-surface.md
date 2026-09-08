@@ -195,12 +195,11 @@ specification and **MUST NOT** be renamed.
 | Code | Raised when |
 | --- | --- |
 | `WRONG_CHAIN` | `eth_chainId != 42161` |
-| `COURT_OUT_OF_RANGE` | `--court` is `0` or `>= courts.length` |
+| `COURT_OUT_OF_RANGE` | `--court` is `0`, or `getTimesPerPeriod(courtID)` reverts |
 | `COURT_DISABLED` | `courts(courtID).disabled` |
 | `JURORS_INVALID` | `--jurors < 1` |
 | `DISPUTE_KIT_OUT_OF_RANGE` | `--kit` is `0` or `>= disputeKits.length` |
 | `DISPUTE_KIT_NOT_SUPPORTED` | `isSupported(courtID, kitID)` is false |
-| `DISPUTE_KIT_REFUSED` | The kit resolves to a ruler contract |
 | `TEMPLATE_INVALID` | The strict authoring schema rejected the template |
 | `RULING_OPTIONS_INVALID` | Fewer than two answers, or a reserved `0x0` answer was submitted |
 | `POLICY_URI_INVALID` | `policyURI` is not a multiaddr |

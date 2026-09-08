@@ -1,4 +1,4 @@
-import type { Address, Hex } from "viem";
+import type { Hex } from "viem";
 import { encodeExtraData } from "./extra-data.js";
 import { err, type KlerosResult, ok } from "./result.js";
 
@@ -33,9 +33,6 @@ export type RequestedDispute = {
   numberOfRulingOptions: bigint;
 };
 
-/** A contract this CLI refuses to act on, by address. `spec/01 §1`. */
-export type RefusedAddress = { address: Address; name: string };
-
 /**
  * What the chain said, with no judgement applied.
  *
@@ -46,8 +43,17 @@ export type RefusedAddress = { address: Address; name: string };
  * supply is not a safety check.
  */
 export type ChainFacts = {
-  /** `courts.length`. Court IDs run `0 .. courtsLength - 1`, and `0` is never valid. */
-  courtsLength: bigint;
+  /**
+   * Whether `courtID` resolves at all, from `getTimesPerPeriod(courtID)` — which
+   * reverts with a decodable `Array index is out of bounds.` panic past the end of
+   * the array. **[live]**
+   *
+   * KlerosCore exposes no courts-length call, so there is no bound to compare
+   * against and none to quote back in a refusal; `getTimesPerPeriod` is already
+   * read for the evidence-period warning, so this costs nothing extra.
+   * `spec/01 §8`.
+   */
+  courtExists: boolean | undefined;
   /** `disputeKits.length`. */
   disputeKitsLength: bigint;
   /** `courts(courtID).disabled`. `undefined` when the court is out of range and the read reverted. */
@@ -55,10 +61,6 @@ export type ChainFacts = {
   /** `isSupported(courtID, kitID)`. Read on **every** invocation — court configuration is
    * governance-mutable, so a cached support table is a stale table (`spec/01 §4.2`). */
   kitSupported: boolean | undefined;
-  /** `disputeKits(kitID)`, the resolved kit address. */
-  kitAddress: Address | undefined;
-  /** The governance override contracts, refused by name. `spec/01 §1`. */
-  refusedAddresses: readonly RefusedAddress[];
 };
 
 export type PreflightFacts = {
@@ -93,30 +95,33 @@ export function checkPreflight({
   chain,
 }: PreflightFacts): KlerosResult<PreflightResult> {
   const { courtID, jurors, disputeKitID, numberOfRulingOptions } = requested;
-  const lastCourt = chain.courtsLength - 1n;
 
   // 1. Court in range. Court 0 is the Forking Court: it does not revert and
   //    reads all-zero, and the decoder maps it to General alongside any
-  //    out-of-range ID (`spec/01 §4.1`).
+  //    out-of-range ID (`spec/01 §4.1`). It is refused before the existence
+  //    probe because the probe would pass on it.
   if (courtID === 0n) {
     return err(
       "COURT_OUT_OF_RANGE",
       "Court 0 is the Forking Court and is never a valid target: KlerosCore would create the " +
-        `dispute in the General Court instead. Courts are 1 through ${lastCourt}. Nothing was sent.`,
+        "dispute in the General Court instead. Court IDs start at 1. Nothing was sent.",
       { courtID: courtID.toString(), hint: COURT_LIST_HINT },
     );
   }
-  if (courtID >= chain.courtsLength) {
+  if (chain.courtExists === undefined) {
     return err(
       "COURT_OUT_OF_RANGE",
-      `Court ${courtID} does not exist: KlerosCore has courts 1 through ${lastCourt}. ` +
-        "A dispute asking for it would be created in the General Court and paid for. " +
-        "Nothing was sent.",
-      {
-        courtID: courtID.toString(),
-        courtsLength: chain.courtsLength.toString(),
-        hint: COURT_LIST_HINT,
-      },
+      `Court ${courtID} could not be confirmed to exist: KlerosCore.getTimesPerPeriod(${courtID}) ` +
+        "was not read. Nothing was sent.",
+      { courtID: courtID.toString(), hint: COURT_LIST_HINT },
+    );
+  }
+  if (!chain.courtExists) {
+    return err(
+      "COURT_OUT_OF_RANGE",
+      `Court ${courtID} does not exist on KlerosCore. A dispute asking for it would be created ` +
+        "in the General Court and paid for. Nothing was sent.",
+      { courtID: courtID.toString(), hint: COURT_LIST_HINT },
     );
   }
 
@@ -181,29 +186,7 @@ export function checkPreflight({
     );
   }
 
-  // 6. The kit is not a governance override contract (`spec/01 §1`).
-  if (chain.refusedAddresses.length > 0) {
-    if (chain.kitAddress === undefined) {
-      return err(
-        "DISPUTE_KIT_REFUSED",
-        `Dispute kit ${disputeKitID} could not be checked against the governance override ` +
-          "contracts: its address was not read. Nothing was sent.",
-        { disputeKitID: disputeKitID.toString() },
-      );
-    }
-    const kit = chain.kitAddress.toLowerCase();
-    const refused = chain.refusedAddresses.find((r) => r.address.toLowerCase() === kit);
-    if (refused !== undefined) {
-      return err(
-        "DISPUTE_KIT_REFUSED",
-        `Dispute kit ${disputeKitID} resolves to ${refused.name}, a governance override ` +
-          "contract this tool refuses to act on. Nothing was sent.",
-        { disputeKitID: disputeKitID.toString(), contract: refused.name },
-      );
-    }
-  }
-
-  // 7. Ruling options. Derived from the template, so this is an assertion over a
+  // 6. Ruling options. Derived from the template, so this is an assertion over a
   //    value built elsewhere rather than a check on operator input. The contract
   //    refuses fewer than two with a reason string; it does **not** check that
   //    the count matches the template (`spec/02 §1.1`).

@@ -4,12 +4,12 @@ import {
   ARBITRUM_ONE_CHAIN_ID,
   DISPUTE_RESOLVER,
   DISPUTE_RESOLVER_ABI,
+  DISPUTE_RESOLVER_RULER,
   DISPUTE_TEMPLATE_REGISTRY,
   EVIDENCE_MODULE,
   EVIDENCE_MODULE_ABI,
   KLEROS_CORE,
   KLEROS_CORE_ABI,
-  REFUSED_ADDRESSES,
 } from "../deployment.js";
 
 /**
@@ -175,7 +175,7 @@ describe("addresses have not moved", () => {
     ],
     [
       "DisputeResolverRuler",
-      REFUSED_ADDRESSES[0].address,
+      DISPUTE_RESOLVER_RULER.address,
       "0xb3a5FdEAF461c42caCe148e978e6FBCa97bE6140",
     ],
   ])("%s", (_label, resolved, historical) => {
@@ -186,9 +186,15 @@ describe("addresses have not moved", () => {
     expect(ARBITRUM_ONE_CHAIN_ID).toBe(42161);
   });
 
-  it("refuses DisputeResolverRuler by name, and lists nothing else", () => {
-    // KlerosCoreRuler is a developer tool for arbitrable developers and is out of
-    // scope here; its absence is deliberate, not an omission.
-    expect(REFUSED_ADDRESSES.map((r) => r.name)).toEqual(["DisputeResolverRuler"]);
+  /**
+   * The control that replaced the runtime ruler check. There is no pre-flight
+   * refusal any more, so this assertion is the whole of the protection: a package
+   * that ever resolved the write target to the governance override would fail the
+   * build here, before anything could be signed against it.
+   */
+  it("never resolves the write target to the governance override contract", () => {
+    expect(getAddress(DISPUTE_RESOLVER.address)).not.toBe(
+      getAddress(DISPUTE_RESOLVER_RULER.address),
+    );
   });
 });

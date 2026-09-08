@@ -1,4 +1,3 @@
-import type { Address } from "viem";
 import { describe, expect, it } from "vitest";
 import type { ChainFacts, PreflightFacts, RequestedDispute } from "../preflight.js";
 import { checkPreflight } from "../preflight.js";
@@ -15,14 +14,12 @@ import { EXTRA_DATA_VECTORS } from "./vectors.js";
  * returns a decision; there is no client to pass it.
  */
 
-/** `spec/01 §4.1`, live: `courts(35)` reverts, `disputeKits(5)` reverts. */
-const COURTS_LENGTH = 35n;
+/**
+ * `spec/01 §4.1`, live: `disputeKits(5)` reverts. Courts have no length to compare
+ * against — existence comes from `getTimesPerPeriod(courtID)` reverting, so it
+ * arrives as a boolean rather than a bound (`spec/01 §8`).
+ */
 const DISPUTE_KITS_LENGTH = 5n;
-
-const CLASSIC_KIT: Address = "0x70B464be85A547144C72485eBa2577E5D3A45421";
-const DISPUTE_RESOLVER_RULER: Address = "0xb3a5FdEAF461c42caCe148e978e6FBCa97bE6140";
-
-const RULERS = [{ address: DISPUTE_RESOLVER_RULER, name: "DisputeResolverRuler" }] as const;
 
 /** X1's request: General Court, three jurors, Classic, two ruling options. */
 const requested = (over: Partial<RequestedDispute> = {}): RequestedDispute => ({
@@ -35,12 +32,10 @@ const requested = (over: Partial<RequestedDispute> = {}): RequestedDispute => ({
 
 /** Everything the reads found, with nothing wrong. */
 const chain = (over: Partial<ChainFacts> = {}): ChainFacts => ({
-  courtsLength: COURTS_LENGTH,
+  courtExists: true,
   disputeKitsLength: DISPUTE_KITS_LENGTH,
   courtDisabled: false,
   kitSupported: true,
-  kitAddress: CLASSIC_KIT,
-  refusedAddresses: RULERS,
   ...over,
 });
 
@@ -77,8 +72,10 @@ describe("checkPreflight", () => {
       expect(refusalOf(facts({ requested: { courtID: 0n } })).code).toBe("COURT_OUT_OF_RANGE");
     });
 
-    it("refuses --court 99, out of range", () => {
-      expect(refusalOf(facts({ requested: { courtID: 99n } })).code).toBe("COURT_OUT_OF_RANGE");
+    it("refuses --court 99, which the existence probe did not resolve", () => {
+      expect(
+        refusalOf(facts({ requested: { courtID: 99n }, chain: { courtExists: false } })).code,
+      ).toBe("COURT_OUT_OF_RANGE");
     });
 
     it("refuses --jurors 0", () => {
@@ -117,19 +114,17 @@ describe("checkPreflight", () => {
   });
 
   describe("bounds", () => {
-    it("accepts the last court and the last kit", () => {
+    it("accepts the last kit", () => {
       const result = checkPreflight(
-        facts({
-          requested: { courtID: COURTS_LENGTH - 1n, disputeKitID: DISPUTE_KITS_LENGTH - 1n },
-        }),
+        facts({ requested: { disputeKitID: DISPUTE_KITS_LENGTH - 1n } }),
       );
       expect(result.success).toBe(true);
     });
 
-    it("refuses one past the last court", () => {
-      expect(refusalOf(facts({ requested: { courtID: COURTS_LENGTH } })).code).toBe(
-        "COURT_OUT_OF_RANGE",
-      );
+    it("accepts any court the probe resolved, however high the ID", () => {
+      // There is no bound to be at the end of: `getTimesPerPeriod` answers for the
+      // court asked about and nothing else.
+      expect(checkPreflight(facts({ requested: { courtID: 34n } })).success).toBe(true);
     });
 
     it("refuses one past the last kit", () => {
@@ -150,7 +145,7 @@ describe("checkPreflight", () => {
       const refusal = refusalOf(
         facts({
           requested: { courtID: 99n, jurors: 0n, disputeKitID: 99n, numberOfRulingOptions: 1n },
-          chain: { kitSupported: false },
+          chain: { courtExists: false, kitSupported: false },
         }),
       );
       expect(refusal.code).toBe("COURT_OUT_OF_RANGE");
@@ -175,33 +170,11 @@ describe("checkPreflight", () => {
       expect(refusal.code).toBe("DISPUTE_KIT_OUT_OF_RANGE");
     });
 
-    it("reports an unsupported kit before a refused one", () => {
-      const refusal = refusalOf(
-        facts({ chain: { kitSupported: false, kitAddress: DISPUTE_RESOLVER_RULER } }),
-      );
-      expect(refusal.code).toBe("DISPUTE_KIT_NOT_SUPPORTED");
-    });
-
     it("reports the kit before the ruling options", () => {
       const refusal = refusalOf(
         facts({ requested: { disputeKitID: 0n, numberOfRulingOptions: 1n } }),
       );
       expect(refusal.code).toBe("DISPUTE_KIT_OUT_OF_RANGE");
-    });
-  });
-
-  describe("governance override contracts", () => {
-    it("refuses a kit that resolves to a ruler", () => {
-      const refusal = refusalOf(facts({ chain: { kitAddress: DISPUTE_RESOLVER_RULER } }));
-      expect(refusal.code).toBe("DISPUTE_KIT_REFUSED");
-      expect(refusal.message).toContain("DisputeResolverRuler");
-    });
-
-    it("compares addresses without regard to checksum casing", () => {
-      const refusal = refusalOf(
-        facts({ chain: { kitAddress: DISPUTE_RESOLVER_RULER.toLowerCase() as Address } }),
-      );
-      expect(refusal.code).toBe("DISPUTE_KIT_REFUSED");
     });
   });
 
@@ -220,16 +193,10 @@ describe("checkPreflight", () => {
       expect(refusal.code).toBe("DISPUTE_KIT_NOT_SUPPORTED");
     });
 
-    it("refuses when the kit address was not read and there are contracts to refuse", () => {
-      const refusal = refusalOf(facts({ chain: { kitAddress: undefined } }));
-      expect(refusal.code).toBe("DISPUTE_KIT_REFUSED");
-    });
-
-    it("does not invent a refusal when there is nothing to refuse against", () => {
-      const result = checkPreflight(
-        facts({ chain: { kitAddress: undefined, refusedAddresses: [] } }),
-      );
-      expect(result.success).toBe(true);
+    it("refuses when court existence was not established", () => {
+      const refusal = refusalOf(facts({ chain: { courtExists: undefined } }));
+      expect(refusal.code).toBe("COURT_OUT_OF_RANGE");
+      expect(refusal.message).toContain("getTimesPerPeriod");
     });
   });
 
@@ -247,8 +214,9 @@ describe("checkPreflight", () => {
   it("never mentions a court it was not asked about", () => {
     // The message is what an agent acts on. A refusal naming the General Court
     // when the operator asked for court 99 is worse than no message at all.
-    const refusal = refusalOf(facts({ requested: { courtID: 99n } }));
+    const refusal = refusalOf(
+      facts({ requested: { courtID: 99n }, chain: { courtExists: false } }),
+    );
     expect(refusal.message).toContain("99");
-    expect(refusal.message).toContain("34");
   });
 });
