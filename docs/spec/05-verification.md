@@ -88,30 +88,54 @@ fails the build rather than a transaction. At minimum:
 
 ## 2. Fork tests
 
-On an Arbitrum One fork at `:8546`. `pnpm test:fork`.
+On an Arbitrum One fork at `:8546`. `pnpm test:fork`, which starts anvil, waits for it and reaps it.
+Implemented in `src/__tests__/fork.test.ts`; absent a fork the suite self-skips loudly per §1.
+
+Each test runs inside an `evm_snapshot` / `evm_revert` pair, so a test that seeds the chain or
+spends the disputant's balance cannot change what the next one measures.
+
+**A fork is not just a cheaper Arbitrum One. It is the only place the state production lacks can be
+created** — an overpayment, and a second arbitrable. Tests 2, 3 and 5 exist for that reason alone,
+and three of the five claims in [Appendix A §2](./appendix-a-unresolved.md) were settled by them.
 
 1. **A create with a deliberately wrong court ID is refused.** Ask for court 99; assert the CLI
    refuses with `COURT_OUT_OF_RANGE` and that **no transaction was sent**. There is no revert to
    prove this for you — the chain would happily create a General Court dispute.
 2. **The value sent equals `arbitrationCost` exactly.** Broadcast on the fork and assert the
-   sender's balance decreased by exactly `arbitrationCost + gasUsed × effectiveGasPrice`. This test
-   both protects the operator and **settles whether excess is refunded**, which is the single most
-   expensive unverified claim this specification carries
-   ([Appendix A §2](./appendix-a-unresolved.md)).
+   sender's balance decreased by exactly `arbitrationCost + gasUsed × effectiveGasPrice`, and that
+   the transaction's own `value` field is the quote — not the envelope's account of it.
 3. **A deliberate overpayment is observed, not guessed.** Send `2 × arbitrationCost` on the fork and
-   record `round.nbVotes` and the resulting balance. Whatever the answer, write it into
-   [01 §3.2](./01-onchain-reference.md) and delete the **[inferred]** marker.
+   record `round.nbVotes` and the resulting balance. Not reachable through `create-dispute`, which
+   sends exactly the quote and offers no way to ask for anything else, so it drives
+   `simulateAndMaybeBroadcast` directly.
+
+   > **Settled.** `nbVotes` is 6 rather than 3 and nothing is refunded: the excess buys a larger
+   > panel. [01 §3.2](./01-onchain-reference.md) carries the table and no longer says
+   > **[inferred]**. This was the most expensive unverified claim the specification held.
 4. **`effective` matches `requested`.** Create with X1 and assert the envelope's effective court,
    juror count and kit equal the requested ones, read back from `KlerosCore.disputes()`.
-5. **The core dispute ID comes from the log.** Assert the reported `coreDisputeID` equals
-   `DisputeCreation._disputeID` and is not merely the function's return value. On a fork seeded so
-   that another arbitrable has created a dispute, the two **MUST** differ — this is the only place
-   the local/core distinction can be exercised at all
-   ([01 §7](./01-onchain-reference.md)).
+5. **The core dispute ID comes from the log.** On a fork seeded so that another arbitrable has
+   created disputes — whitelist one by impersonating the governor — assert the reported
+   `coreDisputeID` equals `DisputeCreation._disputeID`, and that it **differs from the arbitrable's
+   local ID**, read back through `arbitratorDisputeIDToLocalID` and seen again as
+   `DisputeRequest._externalDisputeID`. This is the only place the local/core distinction can be
+   exercised at all ([01 §7](./01-onchain-reference.md)).
+
+   > This test was originally specified as *the reported ID must differ from the function's return
+   > value*. It cannot: **the return value is the core dispute ID**, which the same fork run showed
+   > and [01 §7](./01-onchain-reference.md) now records. The distinction that is real is core
+   > against **local**, so that is what is asserted — plus the return value, pinned to what it
+   > actually is so the correction cannot quietly regress.
 6. **Revert decoding.** Force each row of [01 §5](./01-onchain-reference.md) and assert the CLI
    names it: the `Error(string)` from `DisputeResolver`, and each forwarded core selector.
 7. **`submit-evidence` against a non-existent core dispute ID is refused**, and against a dispute
-   in the `execution` period **warns and proceeds**.
+   in the `execution` period **warns and proceeds**. "Proceeds" is asserted by broadcasting: the
+   emitted `Evidence` log must carry E1's bytes verbatim, the dispute ID and the sender.
+
+8. **Not one of the seven, and worth having anyway:** one create emits `DisputeCreation`,
+   `DisputeRequest` and `DisputeTemplate` in **one receipt**, from three different contracts. That
+   is [Appendix A §2](./appendix-a-unresolved.md) claim 5, which names a fork test as its remedy,
+   and the receipt tests 2 and 4 already fetch is enough to settle it.
 
 ## 3. Acceptance test
 
@@ -188,7 +212,9 @@ The tool is done when all of the following hold:
 4. The CLI surface is machine-checked against [`CONTEXT.md`](../../CONTEXT.md).
 5. `--broadcast` is opt-in, and the simulate-only result says so **in words**.
 6. **A deliberately wrong court ID is refused on a fork**, with no transaction sent.
-7. **The value sent equals `arbitrationCost` exactly**, asserted by balance arithmetic on a fork.
+7. **The value sent equals `arbitrationCost` exactly**, asserted by balance arithmetic on a fork —
+   and the reason it must, that an excess is never refunded, asserted alongside it
+   ([01 §3.2](./01-onchain-reference.md)).
 8. **The effective court, juror count and dispute kit in the envelope match what was requested**,
    read back from chain state rather than echoed from the inputs.
 

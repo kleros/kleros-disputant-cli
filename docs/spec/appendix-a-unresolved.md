@@ -30,23 +30,37 @@ behaviour has been observed — only its ABI is known.
 
 ## 2. Unverified claims this specification carries
 
-| # | Claim | Marker | How it gets settled |
+Three of the five below were settled by the fork tests ([05 §2](./05-verification.md)), which is
+what that step existed to do. They are kept, struck through, because a reader who was told a claim
+was unverified needs to be told it no longer is — and because two of them resolved *against* what
+this specification believed.
+
+| # | Claim | Marker | Status |
 | --- | --- | --- | --- |
-| 1 | **Excess `msg.value` is not refunded** and buys extra jurors, via `round.nbVotes = _feeAmount / feeForJuror` | **[inferred]** from `master` source | Fork test [05 §2.2 and §2.3](./05-verification.md). **The most expensive unverified claim here** |
-| 2 | `_externalDisputeID` in `DisputeRequest` is the arbitrable's local index rather than the arbitrator's dispute ID | **[inferred]** | Verified deployed source from Arbiscan. **Unobservable in production** — all 216 disputes have them equal **[live]** |
-| 3 | The Kleros Court web client resolves evidence by `dispute.externalDisputeId`, so passing the core dispute ID is only correct while the two coincide | **[client]** | **Largely settled** — see the note below and [01 §7.1](./01-onchain-reference.md). The concept is a v1 inheritance being removed upstream **[maintainer]**, and `--dispute` does **not** get a second form |
-| 4 | The `KlerosCore` `extraData` decoder has the shape quoted in [01 §4.4](./01-onchain-reference.md) | **[inferred]**; every *consequence* is **[live]** | Verified deployed source. Low priority: the behaviour is confirmed nine ways |
-| 5 | `DisputeCreation`, `DisputeRequest` and `DisputeTemplate` all land in one transaction | **[inferred]**, strongly supported by 216 matched log pairs **[live]** | Fork test asserting all three in one receipt |
+| 1 | ~~**Excess `msg.value` is not refunded** and buys extra jurors~~ | **[fork]** | **SETTLED, and the claim was right.** `2 × arbitrationCost` yields `nbVotes` 6 instead of 3 and refunds nothing. [01 §3.2](./01-onchain-reference.md) carries the numbers |
+| 2 | ~~`_externalDisputeID` in `DisputeRequest` is the arbitrable's local index rather than the arbitrator's dispute ID~~ | **[fork]** | **SETTLED, and the claim was right.** On a seeded fork `_externalDisputeID` is 220 where the core ID is 224, and `arbitratorDisputeIDToLocalID(224) = 220`. No longer unobservable — it needed a second arbitrable, not Arbiscan |
+| 3 | The Kleros Court web client resolves evidence by `dispute.externalDisputeId`, so passing the core dispute ID is only correct while the two coincide | **[client]** | **Chain half settled, UI half open.** Claim 2 confirms the two really do diverge once a second arbitrable exists. Whether the UI then fails to render is untested. The concept is being removed upstream **[maintainer]**, and `--dispute` does **not** get a second form — [01 §7.1](./01-onchain-reference.md) |
+| 4 | The `KlerosCore` `extraData` decoder has the shape quoted in [01 §4.4](./01-onchain-reference.md) | **[inferred]**; every *consequence* is **[live]** | **Open.** Needs verified deployed source. Low priority: the behaviour is confirmed nine ways, and only the source shape is unread |
+| 5 | ~~`DisputeCreation`, `DisputeRequest` and `DisputeTemplate` all land in one transaction~~ | **[fork]** | **SETTLED, and the claim was right.** One receipt, three emitters |
+
+A sixth claim was settled by the same run and is not in this table, because this specification never
+doubted it: **`createDisputeForTemplate` returns the core dispute ID, not `DisputeResolver`'s local
+index.** [01 §7](./01-onchain-reference.md) asserted the opposite as **[live]**, from a production
+reading that could not distinguish them. Nothing the CLI does changes; §3.5 below records the
+correction.
 
 Claim 1 is why [02 §2](./02-payload-construction.md) says *send exactly the quote* rather than
-*send at least the quote*. The rule holds whichever way the claim resolves, which is the point of
-stating it that way.
+*send at least the quote*. The rule was written to hold whichever way the claim resolved; it
+resolved the expensive way, and the rule is now load-bearing rather than merely prudent.
 
-Claim 2 deserves emphasis. **`DisputeResolver` has created every dispute that exists on Kleros v2
-Arbitrum One** — 216 of 216, no other arbitrable has ever called `createDispute` there **[live]**.
-So core, local and external dispute IDs are numerically identical everywhere, and **no test against
-production can distinguish them**. The first dispute created by any other arbitrable breaks the
-coincidence, silently, for everyone who assumed it.
+Claim 2 deserved its emphasis, and it is worth recording how it fell. **`DisputeResolver` has
+created every dispute that exists on Kleros v2 Arbitrum One** — 216 of 216, no other arbitrable has
+ever called `createDispute` there **[live]**. So core, local and external dispute IDs are
+numerically identical everywhere, and **no test against production can distinguish them**. What
+settled it was not a source read but a fork **seeded with the state production lacks**: whitelist a
+second arbitrable, let it create three disputes, and the three numbers separate. The first dispute
+created by any other arbitrable breaks the coincidence, silently, for everyone who assumed it — and
+that is now a measurement rather than a warning.
 
 Claim 3 has since been explained rather than merely measured. The argument `submitEvidence` takes
 is a Kleros v1 *evidence group ID*, kept so that evidence submitted before a dispute existed could
@@ -123,14 +137,24 @@ Related: the canonical schema is a plain `z.object`, so it is neither `.strict()
 `.passthrough()` — it **strips** unknown keys silently. That is a further argument for
 [ADR-0010](../adr/0010-a-strict-authoring-schema-not-the-sdk-parser.md), not against it.
 
-### 3.5 `createDisputeForTemplate` returns the local dispute ID
+### 3.5 `createDisputeForTemplate`'s return value — and this specification's own error
 
 §14 does not say what the function returns, and the omission is dangerous: the obvious reading is
 that it returns the dispute ID you want.
 
-**[live]** It returns `DisputeResolver`'s own `disputes.length` — the local dispute ID. Today that
-equals the core dispute ID, because of the coincidence in §2. The CLI **MUST** parse
-`DisputeCreation` instead. See [01 §7](./01-onchain-reference.md).
+This section used to answer that it returns `DisputeResolver`'s own `disputes.length` — the local
+dispute ID — marked **[live]**. **That was wrong**, and it is left here rather than deleted because
+it is the clearest example in this repository of a **[live]** marker over a measurement that could
+not see what it claimed to. The observation behind it was real: a simulated create returned `216`,
+and `DisputeResolver.disputes.length` was `216`. So was the core dispute count. The measurement
+distinguished nothing.
+
+**[fork]** It returns the **core** dispute ID. On a fork seeded with a second arbitrable the return
+value is `224` while the local index is `220` ([01 §7](./01-onchain-reference.md)).
+
+The CLI's rule is unchanged and was never at risk: parse `DisputeCreation`. It was right for a
+reason that survived the correction — the log is the arbitrator's own statement — which is why the
+error cost nothing.
 
 ### 3.6 Underpayment reverts — a fact §14 does not record
 

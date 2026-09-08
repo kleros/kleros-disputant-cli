@@ -59,6 +59,7 @@ claim someone already believed.
 | Marker | Meaning |
 | --- | --- |
 | **[live]** | Verified by `eth_call` or `eth_getLogs` against Arbitrum One on **2026-09-08**, at block `503066782` (chain time `1788881785`). Reproduce with [05 §4](./05-verification.md) |
+| **[fork]** | Verified against the **deployed bytecode** on an Arbitrum One fork, in a state the chain could reach but has not — an overpayment, a second arbitrable. Reproduce with `pnpm test:fork` ([05 §2](./05-verification.md)) |
 | **[abi]** | Read from `@kleros/kleros-v2-contracts@2.0.0-rc.2`, `cjs/deployments`. These ABIs are the deployed ones |
 | **[computed]** | Produced locally by `viem` and reproducible offline — selectors, encodings, hashes |
 | **[client]** | Read from the Kleros web client or subgraph source, not from the chain. **Not verified** |
@@ -66,7 +67,9 @@ claim someone already believed.
 | **[maintainer]** | Stated by the Kleros v2 maintainers. Authoritative for intent and roadmap; **not** a substitute for a code-level check of what is deployed |
 
 **[client]** and **[inferred]** claims MUST NOT be depended on without a fork test. They are
-collected in [Appendix A](./appendix-a-unresolved.md).
+collected in [Appendix A](./appendix-a-unresolved.md). A claim that a fork test has since settled is
+re-marked **[fork]** and moves out of that appendix; **[fork]** is stronger than **[live]** for
+anything production has never done, because production has no sample of it to read.
 
 > The `.sol` sources shipped in `@kleros/kleros-v2-contracts` are compiled from `master` and are
 > **not** the deployed code. They disagree with the deployment for exactly the contracts this tool

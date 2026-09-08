@@ -184,9 +184,9 @@ export async function runCreateDispute(
   }
 
   // Mined. The core dispute ID comes from the `DisputeCreation` log and never
-  // from the function's return value, which is `DisputeResolver`'s own local
-  // index — equal today for every dispute in existence, and only by coincidence
-  // (`spec/01 §7`).
+  // from the function's return value. The two agree — verified on a fork where
+  // the local index had been driven apart from the core ID — so this is a
+  // provenance rule: the log is the arbitrator's own statement (`spec/01 §7`).
   const coreDisputeID = await readCreatedDisputeID({ client, txHash: outcome.data.txHash });
   if (!coreDisputeID.success) return coreDisputeID;
 

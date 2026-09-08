@@ -425,10 +425,10 @@ describe("create-dispute", () => {
     });
 
     /**
-     * `createDisputeForTemplate` returns `DisputeResolver`'s **local** dispute
-     * ID. The two are equal for every dispute on Arbitrum One today, and only
-     * because `DisputeResolver` created all of them — so this is the one place
-     * the distinction can be exercised at all (`spec/01 §7`).
+     * The two agree on chain — `createDisputeForTemplate` returns the core
+     * dispute ID, settled on a seeded fork (`spec/01 §7`) — so nothing on a
+     * real node can show which of them the code read. A fake chain can: the
+     * resolver returns one number and the log carries another.
      */
     it("takes the ID from the log, not from the function's return value", async () => {
       const { core, receipt } = mined(981n);

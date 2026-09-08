@@ -295,11 +295,18 @@ export async function readBalance(params: {
  * The core dispute ID, from the `DisputeCreation` log **and never from the
  * function's return value**.
  *
- * `createDisputeForTemplate` returns `DisputeResolver`'s **local** dispute ID.
- * On Arbitrum One today the two are equal for all 216 disputes in existence,
- * because `DisputeResolver` created every one of them — so no test against
- * production can tell them apart, and the first dispute created by any other
- * arbitrable breaks the coincidence permanently and silently (`spec/01 §7`).
+ * `createDisputeForTemplate` returns the core dispute ID too — settled on a
+ * seeded fork, where the return value was 224 and the arbitrable's local index
+ * 220 (`spec/01 §7`). So this is a **provenance** rule rather than a
+ * correctness fix: the log is `KlerosCore`'s own statement of the ID it
+ * assigned, and the return value is `DisputeResolver` relaying it. Only one of
+ * the two stays right if the relay changes.
+ *
+ * The specification asserted the opposite until that fork ran — that the return
+ * value was the local index — from a production reading that could not tell
+ * them apart, because `DisputeResolver` created all 216 disputes in existence.
+ * The rule written here survived being wrong about why, which is the argument
+ * for reading the arbitrator's own log in the first place.
  *
  * The receipt is re-fetched by hash rather than threaded out of `broadcast.ts`:
  * that module is inherited verbatim from the juror CLI apart from the three

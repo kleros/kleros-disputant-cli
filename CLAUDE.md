@@ -14,18 +14,22 @@ surface only, so the CLI must be self-documenting.
 from the deployed contracts and pinned with vectors verified live on 2026-09-08. Read it before
 writing domain logic and cite it by section (`spec/01 §4.4`). It **supersedes
 `HANDOFF_DISPUTANT_CLI.md` §14**, and `spec/appendix-a §3` lists every disagreement, because each
-one is a claim someone already believed.
+one is a claim someone already believed — including two of the spec's own, which the fork tests
+overturned (`spec/appendix-a §3.5`).
 
-Status: bootstrapping. `src/core/` and `src/commands/` are complete — the pure functional core, the
-deployment pinned by a fingerprint test, the read layer, the transaction path, and the four
-commands on incur, with the read paths verified live against Arbitrum One. `README.md` is written
-(step 13, out of order); still no skill, nothing published to npm, **no transaction ever
-broadcast**. Step 12, the fork tests, is next.
+Status: bootstrapping. `src/core/`, `src/commands/` and the fork tests are complete — the pure
+functional core, the deployment pinned by a fingerprint test, the read layer, the transaction path,
+the four commands on incur, and `spec/05 §2`'s seven fork tests, which **broadcast on a fork** and
+settled three of Appendix A's five unverified claims. `README.md` is written (step 13, out of
+order); still no skill, nothing published to npm, **no transaction broadcast on Arbitrum One**.
+Step 13's remainder, the skill, is next.
 Build order: `HANDOFF §10`.
 
 ```
 pnpm test             # unit + guard tests. A suite whose prerequisite is absent self-skips loudly
-pnpm test:fork        # spawn an Arbitrum One fork on :8546 and run only the fork tests
+pnpm test:fork        # spawn an Arbitrum One fork on :8546 and run only the fork tests.
+                      # The only tests that broadcast, and the only ones that can seed the state
+                      # production lacks: an overpayment, and a second arbitrable
 pnpm test:acceptance  # full lifecycle on a pinned fork; needs an archive RPC
 pnpm typecheck
 pnpm lint             # biome check .   (`pnpm exec biome check --write .` to fix)
@@ -44,8 +48,9 @@ wins and is named.
   influence which call is made or with what arguments. `ADR-0007`, `spec/02 §4.3`
 - **Creating a dispute spends money and cannot be undone.** Quote `arbitrationCost` with the
   byte-identical `extraData` immediately before sending, send **exactly** that, state the value in
-  the envelope, and enforce the cost ceiling locally before simulating. The chain protects you
-  against underpaying, not against overpaying. `ADR-0004`, `spec/01 §3.2`
+  the envelope, and enforce the cost ceiling locally before simulating. Underpaying reverts;
+  overpaying does not, and **the excess is never refunded — it buys jurors nobody asked for**
+  (`[fork]`, settled). `ADR-0004`, `spec/01 §3.2`
 - **`extraData` fails silently — pre-flight is the only defence.** A wrong court ID, a zero juror
   count or a malformed blob does **not** revert: the decoder substitutes General Court / default
   jurors / Classic and creates a paid dispute in the wrong court, so `simulateContract` cannot

@@ -103,12 +103,14 @@ distinctions are load-bearing enough to restate, because getting them wrong is s
 | Term | Meaning in this document |
 | --- | --- |
 | **Core dispute ID** | The index in `KlerosCore.disputes[]`, reported by `DisputeCreation`. What `--dispute` takes |
-| **Local dispute ID** | `DisputeResolver`'s own index. **This is what `createDisputeForTemplate` returns**, and it is not what any command takes |
-| **External dispute ID** | The third field of `DisputeRequest`. What the Kleros Court web client uses to look evidence up |
+| **Local dispute ID** | `DisputeResolver`'s own index, mapped back by `arbitratorDisputeIDToLocalID`. Not what any command takes |
+| **External dispute ID** | The third field of `DisputeRequest`. What the Kleros Court web client uses to look evidence up. **[fork]** It is the local dispute ID |
 
 On Arbitrum One today all three are numerically equal for every dispute in existence, because
 `DisputeResolver` created every one of them. **[live]** That coincidence is why the distinction is
-easy to get wrong and impossible to catch by testing against production. See
+easy to get wrong and impossible to catch by testing against production; a fork seeded with a
+second arbitrable is where it separates. **[fork]** `createDisputeForTemplate` returns the **core**
+dispute ID — this table said the local one until that fork ran. See
 [01 §7](./01-onchain-reference.md).
 
 ## Normative summary

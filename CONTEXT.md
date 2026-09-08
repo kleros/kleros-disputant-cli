@@ -83,9 +83,8 @@ _Avoid_: terms, rules, guidelines
 **Arbitration cost**:
 What `KlerosCore.arbitrationCost(extraData)` quotes and what `createDisputeForTemplate` must be
 sent as `msg.value`. Forwarded wholesale to the arbitrator, which derives the juror count from the
-amount. That overpaying therefore buys extra jurors rather than returning change is **inferred
-from `master` source and not verified against the deployed code** — so send exactly the quote,
-and do not rely on a refund either way.
+amount. **Overpaying buys extra jurors and is never refunded** — verified on a fork, where twice
+the quote drew six jurors instead of three and returned nothing. Send exactly the quote.
 _Avoid_: jurors' fee, arbitration fee, gas (it is neither gas nor a fee this tool sets)
 
 **Arbitrator extra data**:
@@ -135,10 +134,10 @@ _Avoid_: evidence group (as a live concept), evidenceGroupID in the CLI surface
 
 **External dispute ID**:
 The third field of `DisputeResolver`'s `DisputeRequest` event, and what the Kleros Court web
-client resolves evidence by. **Whether it is the local index or the arbitrator dispute ID is not
-verified** — all 216 logs have them equal, because this resolver created *every* dispute that
-exists on the deployment. The coincidence is total, so no test against production can distinguish
-the three IDs. Do not build on the distinction until it is confirmed against the deployed source.
+client resolves evidence by. **It is the local dispute ID** — verified on a fork seeded with a
+second arbitrable, where it read 220 against a core dispute ID of 224. On Arbitrum One all 216
+logs have them equal, because this resolver created *every* dispute that exists on the deployment,
+so no test against production can distinguish the three IDs. The CLI never exposes this one.
 `spec/01 §7`
 _Avoid_: dispute ID (unqualified), foreign ID
 

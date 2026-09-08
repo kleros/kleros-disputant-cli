@@ -59,8 +59,9 @@ the ones that can change the decision to sign.
 ## Status
 
 **Pre-release.** All four commands are built and tested; the read paths are verified live against
-Arbitrum One. **No transaction has ever been broadcast from this tool.** Treat the first live
-dispute as the shakedown run, on a cheap court, with a ceiling you can afford to lose.
+Arbitrum One, and both write paths broadcast on an Arbitrum One fork under `pnpm test:fork`.
+**No transaction has ever been broadcast to Arbitrum One itself.** Treat the first live dispute as
+the shakedown run, on a cheap court, with a ceiling you can afford to lose.
 
 | Command | Signing key | On-chain write |
 | --- | :---: | --- |
@@ -300,7 +301,7 @@ possible ([ADR-0001](docs/adr/0001-standalone-repo-shaped-for-upstreaming.md)).
 ```bash
 pnpm test             # unit + guard tests; a suite whose prerequisite is absent self-skips loudly
 pnpm test:fork        # spawn an Arbitrum One fork on :8546 and run only the fork tests (needs anvil)
-pnpm test:acceptance  # full lifecycle on a pinned fork; needs an archive RPC
+pnpm test:acceptance  # full lifecycle on a pinned fork; needs an archive RPC. Not written yet
 pnpm typecheck
 pnpm lint             # biome check .   (`pnpm exec biome check --write .` to fix)
 pnpm build
@@ -327,9 +328,10 @@ The runtime dependencies are exactly two: `incur` and `viem`.
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed, and why nothing is on npm yet |
 
 This repo inherited no specification: one was written here from the deployed contracts, and every
-chain fact in it carries a marker saying how it was established — `[live]`, `[abi]`, `[computed]`,
-`[client]`, `[inferred]`, `[maintainer]`. **`[client]` and `[inferred]` claims must not be depended
-on without a fork test.** `[live]` claims are stamped with a date and a block; re-run
+chain fact in it carries a marker saying how it was established — `[live]`, `[fork]`, `[abi]`,
+`[computed]`, `[client]`, `[inferred]`, `[maintainer]`. **`[client]` and `[inferred]` claims must
+not be depended on without a fork test**, and `[fork]` is what a claim becomes once one has settled
+it. `[live]` claims are stamped with a date and a block; re-run
 [`docs/spec/05-verification.md`](docs/spec/05-verification.md) §4 to refresh them.
 
 Sibling repos, for orientation: [`kleros-juror-cli`](https://github.com/kleros/kleros-juror-cli) is
@@ -339,11 +341,10 @@ agent calls.
 
 ## Roadmap
 
-- [ ] The fork test suite — in particular, settling on chain whether excess `msg.value` is refunded
-      or silently buys extra jurors, which the spec still marks `[inferred]` and calls its most
-      expensive unverified claim
 - [ ] `skills/kleros-disputant/SKILL.md` — the agent skill, with a troubleshooting table keyed on
       error `code`
+- [ ] The acceptance test — the full lifecycle on a pinned fork, in separate processes
+      (`docs/spec/05-verification.md` §3)
 - [ ] First broadcast against Arbitrum One, then the first npm release
 - [ ] Upstreaming `src/core/` into `@kleros/agentkit` once its write milestone lands
 

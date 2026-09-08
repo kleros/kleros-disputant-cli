@@ -125,21 +125,37 @@ balance state override and the correct value, reverts with raw data `0x203b0c18`
 The disputant path therefore runs **necessarily** through `DisputeResolver`. The CLI **MUST NOT**
 offer a direct-to-core path, and **SHOULD** map `0x203b0c18` to an error that says so.
 
-### 3.2 `msg.value` is forwarded wholesale
+### 3.2 `msg.value` is forwarded wholesale, and the excess is never returned
 
 `DisputeResolver` forwards `msg.value` to `KlerosCore.createDispute{value: msg.value}`, and the
-core derives the panel size from the amount. **[inferred]**, from `master` source.
+core derives the panel size from the amount.
 
-What is verified is the part that makes this dangerous:
+The asymmetry is what makes this dangerous:
 
 - **[live]** Sending one wei *less* than `arbitrationCost` reverts with `0x38cd83c4` —
   `ArbitrationFeesNotEnough()`. Underpayment is caught.
 - **[live]** Sending **twice** `arbitrationCost` does **not** revert. The call simulates cleanly and
   returns a dispute ID. Overpayment is not caught.
 
-So the failure is asymmetric: too little is refused loudly, too much is accepted silently. Whether
-the excess buys extra jurors or is returned as change is **[inferred]** and unresolved
-([Appendix A §2](./appendix-a-unresolved.md)). Either way:
+Too little is refused loudly; too much is accepted silently. What the core then *does* with the
+excess was **[inferred]** until a fork could be made to show it, because no dispute on Arbitrum One
+has ever overpaid, so production carries no sample to read.
+
+**[fork]** Creating with `2 × arbitrationCost` on an Arbitrum One fork, X1 (General Court, three
+jurors, Classic, 0.015 ETH):
+
+| Measurement | Exact payment | Double payment |
+| --- | --- | --- |
+| `msg.value` | `15000000000000000` | `30000000000000000` |
+| `getRoundInfo(id, 0).nbVotes` | **3** | **6** |
+| `getRoundInfo(id, 0).totalFeesForJurors` | `15000000000000000` | `30000000000000000` |
+| Sender's balance, less `gasUsed × effectiveGasPrice` | fell by exactly `msg.value` | fell by exactly `msg.value` |
+| Refunded | **0** | **0** |
+
+**The excess is not change. It is a larger panel nobody asked for**, drawn at the operator's
+expense, and there is no mechanism that gives it back. A 10× typo in the value buys thirty jurors
+and cannot be undone. This is the single most expensive fact in this specification, and it is why
+the rule below is *send exactly the quote* rather than *send at least the quote*:
 
 > The CLI **MUST** send exactly `arbitrationCost(extraData)`, quoted with the byte-identical
 > `extraData` blob in the same invocation. It **MUST NOT** add a margin, round up, or reuse a
@@ -287,6 +303,12 @@ Normative:
   That error exists in the package's Solidity and is **not** what the deployment emits.
 - Unmapped revert data **MUST** be surfaced verbatim under a stable code rather than swallowed.
 
+**[fork]** All four rows were re-forced on a fork and decoded by `reverts.ts` itself, so what is
+verified is not merely the raw data the chain returns but the sentence the operator receives
+([05 §2.6](./05-verification.md)). Reaching the first three at all means bypassing a guard that
+exists to prevent them: the template schema will not build a one-option dispute, pre-flight refuses
+an unsupported kit before the chain is asked, and the value is always the quote.
+
 ## 6. Events
 
 **[abi]**, topic hashes **[computed]**.
@@ -299,20 +321,25 @@ Normative:
 | `Evidence(uint256 indexed _externalDisputeID, address indexed _party, string _evidence)` | `EvidenceModule` | `0x39935cf45244bc296a03d6aef1cf17779033ee27090ce9c68d432367ce106996` |
 
 **[live]** All 216 `DisputeRequest` logs ever emitted by `DisputeResolver` correspond one-to-one
-with the 216 `DisputeCreation` logs `KlerosCore` has ever emitted, so all three fire in one
-transaction on the create path.
+with the 216 `DisputeCreation` logs `KlerosCore` has ever emitted. **[fork]** A create on a fork
+puts all three in **one receipt**, emitted by `KlerosCore`, `DisputeResolver` and
+`DisputeTemplateRegistry` respectively — the log correspondence above is consistent with three
+separate transactions, and this is not.
 
 The CLI **MUST** take the core dispute ID from `KlerosCore.DisputeCreation`, and **MUST NOT** take
 it from the function's return value. See §7.
 
 ## 7. The three dispute IDs
 
-`createDisputeForTemplate` returns `DisputeResolver`'s **local** dispute ID — its `disputes` array
-index. **[live]** Simulating a create today returns `216`, which is exactly
-`DisputeResolver.disputes.length`; the value is the next local index, not a core ID that happens
-to match.
+Three numbers name the same dispute, and on Arbitrum One today they are all equal:
 
-That it *also* equals the next core dispute ID is a coincidence of this deployment, and it is total:
+| Name | Where it lives | What it is |
+| --- | --- | --- |
+| **core** dispute ID | `KlerosCore.disputes`, `DisputeCreation._disputeID` | The arbitrator's index. **What this CLI reports and what `--dispute` takes** |
+| **local** dispute ID | `DisputeResolver.disputes`, `DisputeRequest._externalDisputeID` | The arbitrable's own index, mapped back by `arbitratorDisputeIDToLocalID` |
+| the function's **return value** | `createDisputeForTemplate` | See below |
+
+The equality is a coincidence of this deployment, and it is total:
 
 | Measurement | Value |
 | --- | --- |
@@ -327,10 +354,41 @@ arbitrable has ever called `createDispute` there. That is why core, local and ex
 for all 216, and why **no test against production can distinguish them**. The first dispute created
 by any other arbitrable breaks the coincidence permanently and silently.
 
+#### What a seeded fork shows
+
+**[fork]** On a fork where another arbitrable is whitelisted and creates three disputes, the
+coincidence breaks and the three numbers separate for the first time. Creating through
+`DisputeResolver` immediately afterwards:
+
+| Measurement | Value |
+| --- | --- |
+| `DisputeCreation._disputeID` | **224** — the core dispute ID |
+| `createDisputeForTemplate` return value | **224** |
+| `DisputeRequest._arbitratorDisputeID` | **224** |
+| `DisputeRequest._externalDisputeID` | **220** |
+| `arbitratorDisputeIDToLocalID(224)` | **220** |
+| `DisputeResolver.disputes(220)` | the dispute, carrying X1's `extraData` and two ruling options |
+| `DisputeResolver.disputes(224)` | **reverts** — the local array is shorter than the core ID |
+
+Two corrections follow, and both were invisible from production:
+
+- **`createDisputeForTemplate` returns the CORE dispute ID, not the local index.** An earlier
+  reading of this section had it the other way round, from the observation that a simulated create
+  returned `216` and `DisputeResolver.disputes.length` was also `216` — true, and unable to tell the
+  two apart. It is the core ID. **This changes nothing the CLI does**: it never reads the return
+  value, and taking the ID from `DisputeCreation` is right either way. It is recorded because the
+  opposite claim was believed, is quotable, and would mislead the next reader.
+- **`DisputeRequest._externalDisputeID` is the arbitrable's local index**, confirming
+  [Appendix A §2](./appendix-a-unresolved.md) claim 2, which that appendix called unobservable in
+  production.
+
 Normative:
 
 - The CLI **MUST** parse `DisputeCreation._disputeID` for the core dispute ID it reports, and
-  **MUST NOT** report the function return value as the core dispute ID.
+  **MUST NOT** report the function return value as the core dispute ID. The two agree today
+  **[fork]**, so this is no longer a correctness fix — it is a provenance rule: the log is
+  `KlerosCore`'s own statement of the ID it assigned, and the return value is `DisputeResolver`
+  relaying it. Only one of the two stays right if the relay changes.
 - `--dispute` **MUST** be documented and treated as the **core** dispute ID.
 - The CLI **MUST NOT** implement any behaviour that depends on local and external IDs being equal.
 
@@ -338,8 +396,14 @@ Normative:
 > `dispute.externalDisputeId` — the third field of `DisputeRequest` — not by the core dispute ID
 > (`web/src/pages/Cases/CaseDetails/Evidence/index.tsx`). Today the two are equal for every dispute,
 > so passing the core dispute ID to `submitEvidence` renders correctly. **This is the single
-> weakest link between this tool and the Court UI**, and it is
-> [Appendix A §2](./appendix-a-unresolved.md)'s first item.
+> weakest link between this tool and the Court UI.**
+>
+> The fork measurement above sharpens it: `_externalDisputeID` really is the local index, so the
+> day a second arbitrable creates a dispute, every `DisputeResolver` dispute after it has
+> `externalDisputeId != core dispute ID`. What the *chain* does is settled **[fork]**; whether the
+> Court UI then fails to render evidence filed against the core ID is still **[client]** — it has
+> not been tested against the UI, and [§7.1](#71-evidencegroupid--a-v1-inheritance-being-removed)
+> is why the concept is going away rather than being worked around here.
 
 ### 7.1 `evidenceGroupID` — a v1 inheritance being removed
 
