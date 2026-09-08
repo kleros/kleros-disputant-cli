@@ -207,3 +207,132 @@ export function checkPreflight({
     extraData: encodeExtraData({ courtID, jurors, disputeKitID }),
   });
 }
+
+/* ------------------------------------------------------------------------- *
+ * The evidence path — `spec/02 §4.2`, `spec/01 §9`, ADR-0011.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * `disputes().period`, a `uint8` over these five in this order (`spec/01 §9`).
+ * Named rather than numbered because the index reaches an LLM consumer.
+ */
+export const PERIODS = ["evidence", "commit", "vote", "appeal", "execution"] as const;
+
+export type Period = (typeof PERIODS)[number];
+
+/**
+ * What the chain said about a dispute, with no judgement applied.
+ *
+ * `now` is **chain time**, from `getBlock().timestamp`. `Date.now()` MUST NOT be
+ * used for any of the arithmetic below (`spec/01 §8`): the two disagree by
+ * whatever the node is lagging by, and the answer here is reported to an agent
+ * that will act on it.
+ */
+export type EvidenceChainFacts = {
+  coreDisputeID: bigint;
+  courtID: bigint;
+  /** Raw `disputes().period`. Out of range means the deployed enum grew. */
+  periodIndex: number;
+  ruled: boolean;
+  lastPeriodChange: bigint;
+  /** `getTimesPerPeriod(courtID)` — four durations, one per non-terminal period. */
+  timesPerPeriod: readonly bigint[];
+  now: bigint;
+};
+
+export type EvidenceAssessment = {
+  coreDisputeID: bigint;
+  courtID: bigint;
+  period: Period;
+  /**
+   * Seconds to the nominal end of the current period, floored at zero. `null` in
+   * `execution`, which has no duration — `timesPerPeriod` has four entries, not
+   * five.
+   *
+   * **An upper bound, never an entitlement.** `passPeriod` is permissionless and
+   * a period can end early, so this is the most time there could be, not the
+   * time there is.
+   */
+  secondsRemaining: bigint | null;
+  warnings: string[];
+};
+
+/**
+ * The fraction of the court's own evidence period below which submitting is
+ * called out as tight.
+ *
+ * A fixed number of seconds is meaningless here: evidence periods on Arbitrum
+ * One span 600 s (court 34) to 540 000 s (court 24), three orders of magnitude,
+ * so `spec/01 §9` rules one out and asks for a fraction instead. A quarter is
+ * the choice, and it is only a *trigger* — the warning always states the actual
+ * seconds remaining and the period's full length, so a consumer that disagrees
+ * with the threshold can still act on the numbers. Closes `appendix-a §4.3`.
+ */
+export const EVIDENCE_PRESSURE_NUMERATOR = 1n;
+export const EVIDENCE_PRESSURE_DENOMINATOR = 4n;
+
+/**
+ * Pure, and it **never refuses**. `submitEvidence` has no access control, no
+ * payment and no period gate — it succeeds by `eth_call` against a dispute in
+ * the `execution` period — so any period discipline is this CLI's own policy and
+ * ADR-0011 fixes that policy at "warn". The one hard refusal on this path lives
+ * in the read layer, where a dispute ID that `disputes()` cannot resolve is
+ * named `DISPUTE_NOT_FOUND`.
+ */
+export function checkEvidencePreflight(
+  facts: EvidenceChainFacts,
+): KlerosResult<EvidenceAssessment> {
+  const period = PERIODS[facts.periodIndex];
+  if (period === undefined) {
+    return err(
+      "DEPLOYMENT_INCONSISTENT",
+      `Dispute ${facts.coreDisputeID} reports period ${facts.periodIndex}, and KlerosCore is ` +
+        `documented to have ${PERIODS.length}. The deployed period enum is not the one this ` +
+        "tool was built against. Nothing was sent.",
+      { periodIndex: facts.periodIndex, known: [...PERIODS] },
+    );
+  }
+
+  const duration = facts.timesPerPeriod[facts.periodIndex];
+  const secondsRemaining =
+    duration === undefined ? null : max(facts.lastPeriodChange + duration - facts.now, 0n);
+
+  const warnings: string[] = [];
+
+  if (period !== "evidence") {
+    warnings.push(
+      `Dispute ${facts.coreDisputeID} is in the ${period} period; the evidence period is over. ` +
+        "The submission is still recorded on chain and indexed against the dispute, but jurors " +
+        "may already have voted and are under no obligation to revisit it.",
+    );
+  } else if (
+    duration !== undefined &&
+    secondsRemaining !== null &&
+    secondsRemaining * EVIDENCE_PRESSURE_DENOMINATOR <= duration * EVIDENCE_PRESSURE_NUMERATOR
+  ) {
+    warnings.push(
+      `At most ${secondsRemaining}s of court ${facts.courtID}'s ${duration}s evidence period ` +
+        "remain. The period can also end early — passPeriod is permissionless — so this is an " +
+        "upper bound, not time in hand.",
+    );
+  }
+
+  if (facts.ruled) {
+    warnings.push(
+      `Dispute ${facts.coreDisputeID} has already reached its ruling. Evidence submitted now ` +
+        "cannot affect the outcome.",
+    );
+  }
+
+  return ok({
+    coreDisputeID: facts.coreDisputeID,
+    courtID: facts.courtID,
+    period,
+    secondsRemaining,
+    warnings,
+  });
+}
+
+function max(a: bigint, b: bigint): bigint {
+  return a > b ? a : b;
+}

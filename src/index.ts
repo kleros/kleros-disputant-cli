@@ -13,6 +13,17 @@
  * move as possible (ADR-0001, `spec/03 §8`).
  */
 
+export type { MulticallEntry, Outcome, StartupFacts } from "./core/client.js";
+export {
+  assertArbitrumOne,
+  checkDeployment,
+  createKlerosClient,
+  DEFAULT_RPC_URL,
+  EXPECTED_VERSIONS,
+  multicall,
+  parseRpcUrls,
+  startup,
+} from "./core/client.js";
 export type { QuoteAssessment } from "./core/cost.js";
 export { checkBalance, checkCostCeiling, LARGE_QUOTE_WEI } from "./core/cost.js";
 export {
@@ -33,13 +44,26 @@ export { EXTRA_DATA_BYTES, encodeExtraData } from "./core/extra-data.js";
 export { formatWeiAsEth, parseBigInt, parseEthToWei } from "./core/numbers.js";
 export type {
   ChainFacts,
+  EvidenceAssessment,
+  EvidenceChainFacts,
+  Period,
   PreflightFacts,
   PreflightResult,
   RequestedDispute,
 } from "./core/preflight.js";
-export { checkPreflight } from "./core/preflight.js";
+export {
+  checkEvidencePreflight,
+  checkPreflight,
+  EVIDENCE_PRESSURE_DENOMINATOR,
+  EVIDENCE_PRESSURE_NUMERATOR,
+  PERIODS,
+} from "./core/preflight.js";
+export type { ReadCreateDisputeParams, ReadEvidenceParams } from "./core/read-preflight.js";
+export { readCreateDisputeFacts, readEvidenceFacts } from "./core/read-preflight.js";
 export type { ErrorCode, KlerosResult } from "./core/result.js";
 export { err, ok } from "./core/result.js";
+export type { LoadSignerOptions } from "./core/signer.js";
+export { loadSigner } from "./core/signer.js";
 export type { DisputeTemplate, TemplateAnswer, TemplatePayload } from "./core/template.js";
 export {
   buildTemplate,

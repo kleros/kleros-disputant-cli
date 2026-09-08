@@ -158,9 +158,18 @@ Not defects. Decisions this specification deliberately leaves to the implementat
    `--max-cost-eth` but does not fix a default. Court costs on Arbitrum One span 0.00081 to 0.075
    ETH for realistic panels **[live]**, so any default is a policy choice about which courts are
    reachable without an explicit override.
-3. **How is evidence-period pressure expressed?** [01 §9](./01-onchain-reference.md) rules out a
-   fixed second count — the periods span 600 s to 540 000 s. A fraction of the court's own
-   `timesPerPeriod[0]` is the obvious replacement, but the threshold is unchosen.
+3. ~~**How is evidence-period pressure expressed?**~~ **Closed: a quarter of the court's own
+   `timesPerPeriod[0]`.** [01 §9](./01-onchain-reference.md) rules out a fixed second count — the
+   periods span 600 s to 540 000 s — and asks for a fraction; `EVIDENCE_PRESSURE_NUMERATOR` /
+   `EVIDENCE_PRESSURE_DENOMINATOR` in `preflight.ts` fix it at `1/4`. The threshold is cheap
+   because it is only a **trigger**: the warning states the seconds remaining and the period's own
+   full length, so a consumer that disagrees with a quarter can still act on the numbers. Two
+   further warnings need no threshold at all — being past the `evidence` period, and the dispute
+   having been ruled — and none of the three is ever a refusal
+   ([ADR-0011](../adr/0011-evidence-period-pressure-warns-and-never-refuses.md)). The remaining
+   time is floored at zero and reported as an **upper bound**: `passPeriod` is permissionless, so
+   the nominal deadline can pass without the period changing, and the period can equally end
+   early.
 4. ~~**How is court existence established?**~~ **Closed.** `KlerosCore` exposes no courts-length
    call **[abi]** — the ABI has `getDisputeKitsLength()` and no equivalent, and Solidity generates
    no length getter for a public array — so `01 §8`'s read surface could not populate

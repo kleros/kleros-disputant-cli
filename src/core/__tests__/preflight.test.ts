@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { ChainFacts, PreflightFacts, RequestedDispute } from "../preflight.js";
-import { checkPreflight } from "../preflight.js";
+import type {
+  ChainFacts,
+  EvidenceChainFacts,
+  PreflightFacts,
+  RequestedDispute,
+} from "../preflight.js";
+import { checkEvidencePreflight, checkPreflight } from "../preflight.js";
 import { EXTRA_DATA_VECTORS } from "./vectors.js";
 
 /**
@@ -218,5 +223,147 @@ describe("checkPreflight", () => {
       facts({ requested: { courtID: 99n }, chain: { courtExists: false } }),
     );
     expect(refusal.message).toContain("99");
+  });
+});
+
+/**
+ * The evidence path — `spec/01 §9`, `spec/02 §4.2`, ADR-0011.
+ *
+ * The governing fact is that `submitEvidence` has **no access control, no
+ * payment and no period gate**: it succeeds by `eth_call` against a dispute in
+ * the `execution` period, and against a core dispute ID that does not exist at
+ * all. So every check below is a warning, and the assertion that matters most is
+ * that none of them is ever a refusal.
+ */
+describe("the evidence pre-flight", () => {
+  /** Court 1's real evidence period **[live]**: 280 800 s, 3.25 days. */
+  const GENERAL_COURT_EVIDENCE = 280_800n;
+  const TIMES = [GENERAL_COURT_EVIDENCE, 100n, 100n, 100n] as const;
+
+  const evidenceFacts = (over: Partial<EvidenceChainFacts> = {}): EvidenceChainFacts => ({
+    coreDisputeID: 216n,
+    courtID: 1n,
+    periodIndex: 0,
+    ruled: false,
+    lastPeriodChange: 1_000_000n,
+    timesPerPeriod: [...TIMES],
+    now: 1_000_000n,
+    ...over,
+  });
+
+  it("is quiet at the start of the evidence period", () => {
+    const result = checkEvidencePreflight(evidenceFacts());
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.period).toBe("evidence");
+    expect(result.data.secondsRemaining).toBe(GENERAL_COURT_EVIDENCE);
+    expect(result.data.warnings).toEqual([]);
+  });
+
+  /**
+   * The threshold is a quarter of the **court's own** period, because the
+   * periods span 600 s to 540 000 s and a fixed second count is meaningless
+   * across that range (`spec/01 §9`, closing `appendix-a §4.3`).
+   */
+  it("says nothing at just over a quarter remaining, and warns at exactly a quarter", () => {
+    const quarter = GENERAL_COURT_EVIDENCE / 4n;
+
+    const quiet = checkEvidencePreflight(
+      evidenceFacts({ now: 1_000_000n + GENERAL_COURT_EVIDENCE - quarter - 1n }),
+    );
+    expect(quiet.success && quiet.data.warnings).toEqual([]);
+
+    const tight = checkEvidencePreflight(
+      evidenceFacts({ now: 1_000_000n + GENERAL_COURT_EVIDENCE - quarter }),
+    );
+    expect(tight.success).toBe(true);
+    if (!tight.success) return;
+    expect(tight.data.warnings).toHaveLength(1);
+    expect(tight.data.warnings[0]).toContain(`${quarter}s`);
+    expect(tight.data.warnings[0]).toContain(`${GENERAL_COURT_EVIDENCE}s`);
+  });
+
+  /**
+   * A fraction is only a *trigger*. The warning quotes the actual seconds and the
+   * period's own length, so a consumer that disagrees with a quarter can still
+   * act on the numbers — which is what makes the threshold a cheap choice.
+   */
+  it("scales to a court whose whole evidence period is ten minutes", () => {
+    // Court 34, Agentic Commerce: 600 s **[live]**. 150 s left is tight here and
+    // would be nothing at all in the General Court.
+    const result = checkEvidencePreflight(
+      evidenceFacts({ courtID: 34n, timesPerPeriod: [600n, 100n, 100n, 100n], now: 1_000_450n }),
+    );
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.secondsRemaining).toBe(150n);
+    expect(result.data.warnings[0]).toContain("150s of court 34's 600s evidence period");
+  });
+
+  /**
+   * The deadline is an upper bound, never an entitlement: `passPeriod` is
+   * permissionless, so the nominal end can pass without the period changing, and
+   * the period can equally end early. Remaining time floors at zero rather than
+   * going negative.
+   */
+  it("floors the remaining time at zero when the nominal deadline has passed", () => {
+    const result = checkEvidencePreflight(evidenceFacts({ now: 9_000_000n }));
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.period).toBe("evidence");
+    expect(result.data.secondsRemaining).toBe(0n);
+    expect(result.data.warnings[0]).toContain("passPeriod is permissionless");
+  });
+
+  it.each([
+    [1, "commit"],
+    [2, "vote"],
+    [3, "appeal"],
+    [4, "execution"],
+  ])("warns and never refuses past the evidence period (period %i)", (periodIndex, name) => {
+    const result = checkEvidencePreflight(evidenceFacts({ periodIndex }));
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.period).toBe(name);
+    expect(result.data.warnings[0]).toContain(`is in the ${name} period`);
+    expect(result.data.warnings[0]).toContain("still recorded on chain");
+  });
+
+  /** `execution` has no duration: `timesPerPeriod` has four entries, not five. */
+  it("reports no remaining time in the execution period", () => {
+    const result = checkEvidencePreflight(evidenceFacts({ periodIndex: 4 }));
+    expect(result.success && result.data.secondsRemaining).toBeNull();
+  });
+
+  it("adds a second warning once the dispute has been ruled", () => {
+    const result = checkEvidencePreflight(evidenceFacts({ periodIndex: 4, ruled: true }));
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.warnings).toHaveLength(2);
+    expect(result.data.warnings[1]).toContain("cannot affect the outcome");
+  });
+
+  /**
+   * The only refusal on this path, and it is not about the operator's request: a
+   * period index outside the documented enum means the deployed shape is not the
+   * one this tool was built against.
+   */
+  it("refuses a period index the deployed enum was not documented to have", () => {
+    const result = checkEvidencePreflight(evidenceFacts({ periodIndex: 5 }));
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.code).toBe("DEPLOYMENT_INCONSISTENT");
+  });
+
+  it("never refuses on account of the period, at any period, ruled or not", () => {
+    for (const periodIndex of [0, 1, 2, 3, 4]) {
+      for (const ruled of [false, true]) {
+        for (const now of [1_000_000n, 9_000_000n]) {
+          expect(checkEvidencePreflight(evidenceFacts({ periodIndex, ruled, now })).success).toBe(
+            true,
+          );
+        }
+      }
+    }
   });
 });

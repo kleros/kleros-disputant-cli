@@ -16,8 +16,18 @@
  * contract, and the consuming agent branches on them.
  */
 export type ErrorCode =
-  // Startup — `spec/03 §7`
+  // Startup — `spec/03 §7`, in the order that section fixes.
   | "WRONG_CHAIN"
+  | "DEPLOYMENT_INCONSISTENT"
+  // The RPC did not answer. Distinct from every refusal above: nothing was
+  // judged, so nothing can be concluded about the request (`spec/03 §4`, exit 2).
+  | "RPC_ERROR"
+  // Signer — `spec/03 §6`. Exit 4. The key itself MUST NOT reach any of these
+  // payloads, including `details`; see the note in `signer.ts`.
+  | "KEY_FILE_MISSING"
+  | "KEY_FILE_PERMISSIONS"
+  | "KEY_FILE_UNREADABLE"
+  | "KEY_FILE_INVALID"
   // `extraData` pre-flight — `spec/02 §1.1`. None of these has an on-chain
   // backstop: the decoder substitutes defaults and never reverts (`spec/01 §4.4`).
   | "COURT_OUT_OF_RANGE"
