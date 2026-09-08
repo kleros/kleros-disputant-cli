@@ -124,6 +124,15 @@ The arbitrable's own index for a dispute, in its internal array. `arbitratorDisp
 maps core → local. Needed only to read arbitrable-side state; it is never what `--dispute` takes.
 _Avoid_: dispute ID (unqualified), internal ID, resolver ID
 
+**Evidence group ID**:
+The Kleros v1 name for the argument `submitEvidence` takes. It existed to correlate evidence
+submitted **before** a dispute was created, when there is no dispute ID yet to key on. That case
+proved unnecessary and the field was **removed in the devnet deployment**; beta and testnet still
+inherit it, which is why the Arbitrum One ABI still names the parameter `_externalDisputeID` while
+devnet names it `_arbitratorDisputeID`. It is a legacy name for a number this tool already has, not
+a fourth identifier — the CLI never exposes it. `spec/01 §7.1`
+_Avoid_: evidence group (as a live concept), evidenceGroupID in the CLI surface
+
 **External dispute ID**:
 The third field of `DisputeResolver`'s `DisputeRequest` event, and what the Kleros Court web
 client resolves evidence by. **Whether it is the local index or the arbitrator dispute ID is not

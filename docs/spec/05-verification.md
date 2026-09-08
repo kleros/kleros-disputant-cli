@@ -64,11 +64,19 @@ fails the build rather than a transaction. At minimum:
 
 - `createDisputeForTemplate` selector is `0xdc653511` and the function is `payable`.
 - `submitEvidence` selector is `0xa6a7f0eb` and the function is **not** payable.
+- `submitEvidence`'s first parameter is **named `_externalDisputeID`**, and `evidenceModuleAbi`
+  contains `governor()` and **not** `owner()`. The selector alone is **not** sufficient: the devnet
+  deployment renames the parameter to `_arbitratorDisputeID` without changing the signature, so a
+  selector-only assertion cannot see the change ([01 §7.1](./01-onchain-reference.md)).
 - `DisputeRequest` has **five** arguments.
 - `disputeResolverAbi` contains **zero** custom errors.
 - `klerosCoreAbi` contains `ArbitrableNotWhitelisted`, `ArbitrationFeesNotEnough` and
   `DisputeKitNotSupportedByCourt`, and does **not** contain `arbitrableWhitelistEnabled`.
-- The five addresses in [01 §1](./01-onchain-reference.md) are what the package resolves for 42161.
+- `arbitrationCost` still offers **both** overloads, `(bytes)` and `(bytes,address)`. The one-argument
+  form is the ETH path; losing it would silently retarget the quote at the fee-token path
+  ([01 §8](./01-onchain-reference.md), ADR-0008).
+- The addresses in [01 §1](./01-onchain-reference.md) are what the package resolves for 42161 —
+  including both governance override contracts, which are refused by name.
 
 ### 1.7 Output and safety
 

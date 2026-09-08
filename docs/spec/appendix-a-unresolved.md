@@ -34,7 +34,7 @@ behaviour has been observed — only its ABI is known.
 | --- | --- | --- | --- |
 | 1 | **Excess `msg.value` is not refunded** and buys extra jurors, via `round.nbVotes = _feeAmount / feeForJuror` | **[inferred]** from `master` source | Fork test [05 §2.2 and §2.3](./05-verification.md). **The most expensive unverified claim here** |
 | 2 | `_externalDisputeID` in `DisputeRequest` is the arbitrable's local index rather than the arbitrator's dispute ID | **[inferred]** | Verified deployed source from Arbiscan. **Unobservable in production** — all 216 disputes have them equal **[live]** |
-| 3 | The Kleros Court web client resolves evidence by `dispute.externalDisputeId`, so passing the core dispute ID is only correct while the two coincide | **[client]** | Read the deployed `DisputeResolver` source; then decide whether `--dispute` needs a second form |
+| 3 | The Kleros Court web client resolves evidence by `dispute.externalDisputeId`, so passing the core dispute ID is only correct while the two coincide | **[client]** | **Largely settled** — see the note below and [01 §7.1](./01-onchain-reference.md). The concept is a v1 inheritance being removed upstream **[maintainer]**, and `--dispute` does **not** get a second form |
 | 4 | The `KlerosCore` `extraData` decoder has the shape quoted in [01 §4.4](./01-onchain-reference.md) | **[inferred]**; every *consequence* is **[live]** | Verified deployed source. Low priority: the behaviour is confirmed nine ways |
 | 5 | `DisputeCreation`, `DisputeRequest` and `DisputeTemplate` all land in one transaction | **[inferred]**, strongly supported by 216 matched log pairs **[live]** | Fork test asserting all three in one receipt |
 
@@ -47,6 +47,15 @@ Arbitrum One** — 216 of 216, no other arbitrable has ever called `createDisput
 So core, local and external dispute IDs are numerically identical everywhere, and **no test against
 production can distinguish them**. The first dispute created by any other arbitrable breaks the
 coincidence, silently, for everyone who assumed it.
+
+Claim 3 has since been explained rather than merely measured. The argument `submitEvidence` takes
+is a Kleros v1 *evidence group ID*, kept so that evidence submitted before a dispute existed could
+be correlated; it proved unnecessary and **was removed in the devnet deployment**, while beta and
+testnet still inherit it **[maintainer]**. The Kleros Court web client passing an evidence group
+where this CLI passes a core dispute ID is therefore a legacy artifact with a known direction of
+travel, not an unresolved three-way ambiguity — and after the removal the parameter is
+`_arbitratorDisputeID`, which is exactly what this specification already mandates. The full account,
+including why a selector fingerprint cannot see the change, is [01 §7.1](./01-onchain-reference.md).
 
 ## 3. Corrections to `HANDOFF_DISPUTANT_CLI.md` §14
 
@@ -140,9 +149,11 @@ safe to emit and is read by the indexer — it simply is not in the format speci
 
 Not defects. Decisions this specification deliberately leaves to the implementation.
 
-1. **Should `--dispute` accept a local dispute ID at all?** Today it cannot matter. It will, once
-   another arbitrable creates a dispute. Deciding now costs nothing; deciding later costs a
-   breaking change to the option's meaning.
+1. ~~**Should `--dispute` accept a local dispute ID at all?**~~ **Closed: no.** The evidence-group
+   concept that a second form would have accommodated is being deleted upstream, and after its
+   removal `submitEvidence`'s argument is the core dispute ID outright
+   ([01 §7.1](./01-onchain-reference.md)). A second form would encode a distinction with a known
+   expiry date.
 2. **Where does the cost ceiling default sit?** [03 §3.2](./03-cli-surface.md) requires
    `--max-cost-eth` but does not fix a default. Court costs on Arbitrum One span 0.00081 to 0.075
    ETH for realistic panels **[live]**, so any default is a policy choice about which courts are
@@ -150,3 +161,27 @@ Not defects. Decisions this specification deliberately leaves to the implementat
 3. **How is evidence-period pressure expressed?** [01 §9](./01-onchain-reference.md) rules out a
    fixed second count — the periods span 600 s to 540 000 s. A fraction of the court's own
    `timesPerPeriod[0]` is the obvious replacement, but the threshold is unchosen.
+4. **How is court existence established?** Found while building the deployment fingerprint.
+   `preflight.ts` takes `courtsLength` in `ChainFacts` and refuses any `courtID >= courtsLength`,
+   but **`KlerosCore` exposes no courts-length call** **[abi]**: the ABI has `getDisputeKitsLength()`
+   and no equivalent, and Solidity generates no length getter for a public array. So
+   [01 §8](./01-onchain-reference.md)'s read surface cannot populate the facts struct as written.
+
+   **Resolved in principle [maintainer]:** probe `getTimesPerPeriod(courtID)`, which reverts for a
+   court that does not exist. **[live]** Verified against Arbitrum One: courts 1–34 resolve, 35 and
+   99999 revert — and `getTimesPerPeriod` reverts with a **decodable** `Array index is out of
+   bounds.` panic where `courts()` reverts with no reason at all, so it is the better probe on
+   diagnosis quality as well as on call count. It is already in the read surface for the
+   evidence-period warning.
+
+   What remains is the implementation change: `ChainFacts.courtsLength: bigint` becomes a
+   court-existence fact, and the `COURT_OUT_OF_RANGE` message loses its "courts are 1 through N"
+   bound, which nothing can supply without a second mechanism. That bound is advisory and the hint
+   already points at `kleros court list`.
+5. **Where does the ruler refusal belong?** `preflight.ts` compares `REFUSED_ADDRESSES` against the
+   resolved **dispute kit** address, and a ruler can never be one: **[live]** KlerosCore's five
+   registered kits are the NULL kit plus four `DisputeKit*` contracts, and neither ruler is among
+   them. The check cannot fire as wired. The hazard [01 §1](./01-onchain-reference.md) means to
+   prevent is *acting on* a ruler as the write target, which today is prevented by resolving that
+   target from the package and pinning it in `deployment.test.ts`. Either move the refusal onto the
+   write target, where it can bite, or delete it and say the pinned address is the control.

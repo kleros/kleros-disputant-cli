@@ -17,14 +17,16 @@ Everything in this document was read from the deployment artifacts shipped in
 | `DisputeTemplateRegistry` | `0x0cFBaCA5C72e7Ca5fFABE768E135654fB3F2a5A2` | — | Written to indirectly. `templates()` = 227 **[live]** |
 | `PolicyRegistry` | `0x553dcbF6aB3aE06a1064b5200Df1B5A9fB403d3c` | — | Not used in v1 |
 | `DisputeResolverRuler` | `0xb3a5FdEAF461c42caCe148e978e6FBCa97bE6140` | — | **Refuse by name** |
-| `KlerosCoreRuler` | see the package | — | **Refuse by name** |
+| `KlerosCoreRuler` | `0xc0169e0B19aE02ac4fADD689260CF038726DFE13` | — | Not used. A developer tool for arbitrable developers **[maintainer]** |
 
 **[live]** The deployment is internally consistent: `DisputeResolver.arbitrator()` returns the
 `KlerosCore` above, and `DisputeResolver.templateRegistry()` returns the registry above. The CLI
 **SHOULD** assert both at startup rather than assume the registry entries agree with each other.
 
-The two ruler contracts are governance override tools. The CLI **MUST** refuse to act on either,
-by address, with an error that names them.
+`DisputeResolverRuler` is a governance override tool. The CLI **MUST** refuse to act on it, by
+address, with an error that names it. `KlerosCoreRuler` is **not** in scope: it is a developer tool
+for arbitrable developers **[maintainer]**, and listing it would imply a hazard this CLI does not
+face.
 
 ### 1.1 Importing the deployment
 
@@ -33,10 +35,14 @@ hand-copied. [ADR-0006](../adr/0006-deployment-imported-from-contracts-package.m
 
 Three mechanical facts, all verified against `2.0.0-rc.2`:
 
-- **The package root cannot be imported.** It throws
-  `ReferenceError: exports is not defined in ES module scope`. The `exports` map declares `.`,
-  `./cjs/deployments` and `./esm/deployments`; only the last two work. Paths *below* those are not
-  declared, which is why the bundler shim reaches leaf modules by relative path.
+- **Only `./cjs/deployments` can be imported.** The `exports` map declares `.`,
+  `./cjs/deployments` and `./esm/deployments`, but **the root and the `esm/` subpath both throw**
+  `ReferenceError: exports is not defined in ES module scope` **[computed]** — the `esm/` tree is
+  transpiled CommonJS shipped under an `esm/package.json` declaring `"type": "module"`, so Node
+  parses it as ESM and finds no named exports. This is a broken upstream build, **not** an
+  undeclared export: all three specifiers are declared and one of them works. Paths *below*
+  `./cjs/deployments` are genuinely undeclared, which is why the bundler shim reaches leaf modules
+  by relative path.
 - **`mainnetViem` is a real export of `cjs/deployments`.** It is a namespace object holding
   `klerosCoreAbi`, `klerosCoreAddress`, `klerosCoreConfig`, `disputeResolverAbi`, … Binding to
   `mainnetViem.*Abi` is correct and needs no local shim to invent the name. *(This corrects
@@ -330,6 +336,43 @@ Normative:
 > weakest link between this tool and the Court UI**, and it is
 > [Appendix A §2](./appendix-a-unresolved.md)'s first item.
 
+### 7.1 `evidenceGroupID` — a v1 inheritance being removed
+
+**[maintainer]** The first argument of `submitEvidence` is inherited from Kleros v1, where it was
+an *evidence group ID*. It existed to correlate evidence submitted **before** a dispute was created
+— in that case there is no dispute ID yet to key on. That case proved unnecessary in practice and
+the field carried substantial complexity, so it was **removed in the devnet deployment**. Beta
+(Arbitrum One) and testnet still inherit it. It is one of the few beta/devnet incompatibilities.
+
+The rename is already visible in the deployment artifacts **[abi]**:
+
+| Deployment export | Chain | `submitEvidence` first parameter | Admin function |
+| --- | --- | --- | --- |
+| `mainnetViem` — beta, what this CLI targets | 42161 | `uint256 _externalDisputeID` | `governor()` |
+| `testnetViem` | 421614 | `uint256 _externalDisputeID` | `governor()` |
+| `devnetViem` | 421614 | `uint256 _arbitratorDisputeID` | `owner()` |
+
+**The rename is invisible to a signature fingerprint** **[computed]**. Both shapes are
+`submitEvidence(uint256,string)`, selector `0xa6a7f0eb`, and both emit
+`Evidence(uint256,address,string)`, topic0
+`0x39935cf45244bc296a03d6aef1cf17779033ee27090ce9c68d432367ce106996`. Only the ABI's *parameter
+name* differs, and a selector is not derived from parameter names. A fingerprint test that pins the
+selector alone would pass unchanged against a beta upgraded to the devnet shape, while the meaning
+of the argument had moved underneath it — so [05 §1.6](./05-verification.md) pins the parameter
+name as well.
+
+Note also that **a chain ID does not identify a deployment**: testnet and devnet are both 421614.
+That is a second, independent reason [03 §7](./03-cli-surface.md) asserts 42161 and then selects
+`mainnetViem` explicitly, rather than resolving a deployment from the chain ID.
+
+Normative:
+
+- `--dispute` **MUST** remain the core dispute ID. The removal moves the contract *towards* that
+  meaning — `_arbitratorDisputeID` **is** the core dispute ID — so the rule is right both before and
+  after the change, and right on beta today only by the coincidence measured in §7.
+- The CLI **MUST NOT** expose an evidence-group concept in its surface or its vocabulary. It is
+  being deleted upstream.
+
 ## 8. Read surface for pre-flight
 
 Only reads that can change the decision to sign belong here. **[abi]**, selectors **[computed]**.
@@ -339,12 +382,19 @@ Only reads that can change the decision to sign belong here. **[abi]**, selector
 | `eth_chainId` | — | The chain assertion. **Runs before every registry lookup** |
 | `courts(uint256) → (parent, hiddenVotes, minStake, alpha, feeForJuror, jurorsForCourtJump, disabled)` | `KlerosCore` | Court exists, is not disabled, and the fee that explains the quote |
 | `isSupported(uint96, uint256) → bool` | `KlerosCore` | Kit is enabled in that court. **Never cached** |
-| `arbitrationCost(bytes) → uint256` | `KlerosCore` | The exact value to send |
+| `arbitrationCost(bytes) → uint256` | `KlerosCore` | The exact value to send. **Overloaded** — see below |
 | `disputes(uint256) → (courtID, arbitrated, period, ruled, lastPeriodChange)` | `KlerosCore` | The dispute exists; its period, for the evidence warning |
 | `getTimesPerPeriod(uint96) → uint256[4]` | `KlerosCore` | The period deadline, for the evidence warning |
 | `version()` | `KlerosCore`, `EvidenceModule` | A **warning** on mismatch, never a failure |
 | `getBalance` | — | `INSUFFICIENT_BALANCE`, which **MUST** include `value` |
 | `getBlock().timestamp` | — | **Chain time.** `Date.now()` **MUST NOT** be used for deadline arithmetic |
+
+**[abi]** `arbitrationCost` is **overloaded**: `arbitrationCost(bytes)` and
+`arbitrationCost(bytes,address)`, the second taking a fee token. That second form is the ERC-20 path
+[ADR-0008](../adr/0008-arbitration-fees-are-paid-in-eth-only.md) leaves unresolved, and there is no
+flag that can reach it. viem selects an overload by argument count, so calling with a single
+argument is correct — but an ABI that dropped the one-argument form would silently retarget the
+quote at the token path, so [05 §1.6](./05-verification.md) pins both overloads.
 
 **[live]** A non-existent core dispute ID makes `disputes(n)` revert — an array out-of-bounds
 panic, not a named error. The CLI **MUST** convert that into a readable `DISPUTE_NOT_FOUND`

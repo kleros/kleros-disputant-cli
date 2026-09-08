@@ -63,6 +63,7 @@ claim someone already believed.
 | **[computed]** | Produced locally by `viem` and reproducible offline — selectors, encodings, hashes |
 | **[client]** | Read from the Kleros web client or subgraph source, not from the chain. **Not verified** |
 | **[inferred]** | Reasoned from source that is not the deployed code. **Not verified** |
+| **[maintainer]** | Stated by the Kleros v2 maintainers. Authoritative for intent and roadmap; **not** a substitute for a code-level check of what is deployed |
 
 **[client]** and **[inferred]** claims MUST NOT be depended on without a fork test. They are
 collected in [Appendix A](./appendix-a-unresolved.md).
