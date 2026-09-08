@@ -1,15 +1,15 @@
 {
-  "name": "kleros-disputant-cli",
+  "name": "@kleros/kleros-disputant-cli",
   "version": "0.0.0",
   "type": "module",
   "description": "Headless CLI for creating Kleros v2 disputes and submitting evidence on Arbitrum One",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jaybuidl/kleros-disputant-cli.git"
+    "url": "git+https://github.com/kleros/kleros-disputant-cli.git"
   },
-  "homepage": "https://github.com/jaybuidl/kleros-disputant-cli#readme",
-  "bugs": "https://github.com/jaybuidl/kleros-disputant-cli/issues",
+  "homepage": "https://github.com/kleros/kleros-disputant-cli#readme",
+  "bugs": "https://github.com/kleros/kleros-disputant-cli/issues",
   "keywords": [
     "kleros",
     "arbitration",
