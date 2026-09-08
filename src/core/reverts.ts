@@ -1,0 +1,202 @@
+import type { Hex } from "viem";
+import {
+  BaseError,
+  ContractFunctionRevertedError,
+  decodeAbiParameters,
+  slice,
+  toFunctionSelector,
+} from "viem";
+import { DISPUTE_RESOLVER_ABI, EVIDENCE_MODULE_ABI, KLEROS_CORE_ABI } from "./deployment.js";
+
+/**
+ * Revert decoding — `spec/01 §5`, verified by `spec/05 §2.6`.
+ *
+ * **Decoding is not uniform here, and that is the trap.** `DisputeResolver`
+ * declares *zero* custom errors **[abi]**, but its reverts are not anonymous:
+ * its own guards are `require` statements carrying `Error(string)`, while the
+ * failures it *forwards* from `KlerosCore` arrive as bare 4-byte selectors that
+ * are named in `klerosCoreAbi` and appear nowhere in `disputeResolverAbi`.
+ *
+ * viem, given only the call target's ABI, therefore cannot name a forwarded core
+ * error — it raises `AbiErrorSignatureNotFoundError` and hands back a signature.
+ * So this module ignores viem's decoding entirely and works from
+ * `ContractFunctionRevertedError.raw`, the untouched revert data, against **its
+ * own selector table spanning all three ABIs**. `spec/01 §5` requires exactly
+ * that.
+ *
+ * Nothing here is hand-copied. The table is computed from the imported ABIs
+ * (ADR-0006), so an upstream error rename moves the selector and the fingerprint
+ * test is what catches it.
+ */
+
+/** `Error(string)` — Solidity's `require` reason. `DisputeResolver`'s own guards. */
+const ERROR_STRING = "0x08c379a0";
+/** `Panic(uint256)` — what an out-of-range array getter raises (`spec/01 §8`). */
+const PANIC = "0x4e487b71";
+
+/** The panic codes this tool can actually provoke. Anything else is reported by number. */
+const PANIC_REASONS: Record<string, string> = {
+  "0x01": "an assertion failed",
+  "0x11": "an arithmetic operation overflowed",
+  "0x32": "an array index is out of bounds",
+};
+
+type AbiErrorEntry = { type: string; name?: string; inputs?: readonly { type: string }[] };
+
+/**
+ * Selector → error name, over `klerosCoreAbi`, `disputeResolverAbi` and
+ * `evidenceModuleAbi` at once. The union is the point: the selector on the wire
+ * comes from whichever contract in the call stack reverted, not from the one
+ * that was called.
+ *
+ * Names shared across ABIs (`AlreadyInitialized`, the UUPS pair) carry the same
+ * selector by construction, so the merge cannot disagree with itself.
+ */
+export const ERROR_SELECTORS: ReadonlyMap<string, string> = new Map(
+  [KLEROS_CORE_ABI, DISPUTE_RESOLVER_ABI, EVIDENCE_MODULE_ABI].flatMap((abi) =>
+    (abi as readonly AbiErrorEntry[])
+      .filter((entry): entry is AbiErrorEntry & { name: string } =>
+        Boolean(entry.type === "error" && entry.name),
+      )
+      .map(
+        (entry) =>
+          [
+            toFunctionSelector(
+              `${entry.name}(${(entry.inputs ?? []).map((i) => i.type).join(",")})`,
+            ),
+            entry.name,
+          ] as const,
+      ),
+  ),
+);
+
+/**
+ * Guidance for the failures this tool can actually cause, keyed by what the
+ * chain says rather than by what provoked it. Every row is one of `spec/01 §5`'s
+ * four observed conditions.
+ *
+ * `ShouldBeAtLeastTwoRulingOptions()` (`0x5fea5b86`) is deliberately **absent**.
+ * It exists in the contracts package's Solidity, which is compiled from `master`
+ * and is not the deployed code; the deployment reverts with the reason string
+ * below instead (`spec/01 §2`, `§5`). Keying on it would silently stop matching
+ * the day someone believed it.
+ */
+const GUIDANCE_BY_REASON: Record<string, string> = {
+  "Should be at least 2 ruling options.":
+    "The template offers fewer than two ruling options. Add answers to the template; the count " +
+    "is derived from them and is never a flag.",
+};
+
+const GUIDANCE_BY_ERROR: Record<string, string> = {
+  ArbitrationFeesNotEnough:
+    "KlerosCore was sent less than arbitrationCost. The quote and the transaction must come from " +
+    "one invocation with byte-identical extraData; a cost that moved between the two is the " +
+    "usual cause. Nothing was created and the fee was not paid.",
+  DisputeKitNotSupportedByCourt:
+    "The court does not support the requested dispute kit. Pre-flight reads isSupported on every " +
+    "invocation, so seeing this means court configuration changed between that read and this " +
+    "call. Nothing was created and the fee was not paid.",
+  ArbitrableNotWhitelisted:
+    "KlerosCore accepts createDispute only from a whitelisted arbitrable, and an EOA is never " +
+    "one. This tool writes through DisputeResolver, so this can only mean the call was aimed at " +
+    "the core directly.",
+};
+
+export type DecodedRevert = {
+  /** The reason string, the custom error name, or a panic description. `null` when neither. */
+  reason: string | null;
+  /**
+   * The revert data, **verbatim**. `spec/01 §5` requires unmapped data to be
+   * surfaced rather than swallowed, and this is where it survives.
+   */
+  data: Hex | null;
+  /** What to tell the operator. Falls back to the raw data, never to silence. */
+  guidance: string;
+};
+
+export function decodeRevert(error: unknown): DecodedRevert {
+  const raw = rawRevertData(error);
+
+  if (raw !== null && raw.length >= 10) {
+    const selector = slice(raw, 0, 4);
+
+    if (selector === ERROR_STRING) {
+      const reason = decodeErrorString(raw);
+      if (reason !== null) {
+        return { reason, data: raw, guidance: GUIDANCE_BY_REASON[reason] ?? reason };
+      }
+    }
+
+    if (selector === PANIC) {
+      const code = decodePanicCode(raw);
+      const described = code === null ? null : PANIC_REASONS[code];
+      const reason = code === null ? "panic" : `panic ${code}`;
+      return {
+        reason,
+        data: raw,
+        guidance: described
+          ? `The contract reverted because ${described}.`
+          : `The contract reverted with a Solidity panic (${reason}).`,
+      };
+    }
+
+    const name = ERROR_SELECTORS.get(selector);
+    if (name !== undefined) {
+      return {
+        reason: name,
+        data: raw,
+        guidance: GUIDANCE_BY_ERROR[name] ?? `The contract reverted with ${name}().`,
+      };
+    }
+
+    // Unmapped: named by neither ABI. Surfaced verbatim rather than swallowed —
+    // a selector a reader can look up beats a message that lost it.
+    return {
+      reason: null,
+      data: raw,
+      guidance:
+        `The contract reverted with unrecognised data ${raw}. The selector ${selector} is in ` +
+        "neither KlerosCore's ABI nor DisputeResolver's nor EvidenceModule's, so the deployment " +
+        "may have moved ahead of this tool.",
+    };
+  }
+
+  if (error instanceof BaseError) {
+    return { reason: null, data: raw, guidance: error.shortMessage || error.message };
+  }
+  return {
+    reason: null,
+    data: raw,
+    guidance: error instanceof Error ? error.message : String(error),
+  };
+}
+
+/**
+ * viem always sets `raw` to the revert data it was handed, whether or not it
+ * could decode it against the ABI it was given — which is what makes working
+ * from `raw` rather than from `data.errorName` possible at all.
+ */
+function rawRevertData(error: unknown): Hex | null {
+  if (!(error instanceof BaseError)) return null;
+  const reverted = error.walk((e) => e instanceof ContractFunctionRevertedError);
+  if (reverted instanceof ContractFunctionRevertedError && reverted.raw) return reverted.raw;
+  return null;
+}
+
+function decodeErrorString(raw: Hex): string | null {
+  try {
+    const [reason] = decodeAbiParameters([{ type: "string" }], slice(raw, 4));
+    return reason;
+  } catch {
+    return null;
+  }
+}
+
+function decodePanicCode(raw: Hex): string | null {
+  try {
+    const [code] = decodeAbiParameters([{ type: "uint256" }], slice(raw, 4));
+    return `0x${code.toString(16).padStart(2, "0")}`;
+  } catch {
+    return null;
+  }
+}

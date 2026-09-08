@@ -13,6 +13,13 @@
  * move as possible (ADR-0001, `spec/03 §8`).
  */
 
+export type {
+  BroadcastParams,
+  BroadcastResult,
+  FeePlan,
+  WriteCall,
+} from "./core/broadcast.js";
+export { simulateAndMaybeBroadcast } from "./core/broadcast.js";
 export type { MulticallEntry, Outcome, StartupFacts } from "./core/client.js";
 export {
   assertArbitrumOne,
@@ -62,6 +69,8 @@ export type { ReadCreateDisputeParams, ReadEvidenceParams } from "./core/read-pr
 export { readCreateDisputeFacts, readEvidenceFacts } from "./core/read-preflight.js";
 export type { ErrorCode, KlerosResult } from "./core/result.js";
 export { err, ok } from "./core/result.js";
+export type { DecodedRevert } from "./core/reverts.js";
+export { decodeRevert, ERROR_SELECTORS } from "./core/reverts.js";
 export type { LoadSignerOptions } from "./core/signer.js";
 export { loadSigner } from "./core/signer.js";
 export type { DisputeTemplate, TemplateAnswer, TemplatePayload } from "./core/template.js";

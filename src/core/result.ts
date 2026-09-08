@@ -48,6 +48,9 @@ export type ErrorCode =
   // Post-send — `spec/02 §1.2`, `spec/01 §5`
   | "EFFECTIVE_MISMATCH"
   | "SIMULATION_REVERTED"
+  // The node refused the signed transaction, so it was never submitted. Distinct
+  // from a revert: there is no hash to check and nothing landed (`spec/04 §3`).
+  | "BROADCAST_FAILED"
   // Option parsing. Every numeric option is `z.string()` and parsed here, so a
   // bad number fails with a stable code rather than incur's validation error
   // (`spec/03 §3.1`). Not in `§5.5`'s list, which that section says is not
