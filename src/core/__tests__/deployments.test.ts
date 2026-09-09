@@ -25,8 +25,11 @@ describe("the table", () => {
     }
   });
 
-  it("serves arbitrum-one and defaults to it", () => {
-    expect(DEPLOYMENT_SLUGS).toContain("arbitrum-one");
+  it("serves both deployments and still defaults to arbitrum-one", () => {
+    expect([...DEPLOYMENT_SLUGS]).toEqual(["arbitrum-one", "arbitrum-sepolia-testnet"]);
+    // **Load-bearing**: a moved default silently re-points every invocation that
+    // predates `--chain`, which is the one thing registering a second deployment
+    // must not do (ADR-0015).
     expect(DEFAULT_DEPLOYMENT_SLUG).toBe("arbitrum-one");
     expect(DEFAULT_DEPLOYMENT).toBe(DEPLOYMENTS["arbitrum-one"]);
   });
@@ -47,6 +50,21 @@ describe("the table", () => {
 
   it("names each deployment in prose, for the one gloss in the --chain description", () => {
     expect(DEPLOYMENTS["arbitrum-one"].name).toBe("v2 Beta");
+    expect(DEPLOYMENTS["arbitrum-sepolia-testnet"].name).toBe("v2 testnet");
+  });
+
+  /**
+   * **Two deployments, two endpoints and two variable names.** A shared default
+   * would send a testnet invocation at Arbitrum One and leave `assertChain` to
+   * catch it — a refusal where there should have been a working command — and a
+   * shared variable name would let one exported value follow the caller across
+   * deployments, which is the ambient redirection the flag exists to prevent.
+   */
+  it("gives each deployment its own endpoint and its own override variable", () => {
+    const endpoints = DEPLOYMENT_SLUGS.map((slug) => DEPLOYMENTS[slug].defaultRpcUrl);
+    const variables = DEPLOYMENT_SLUGS.map((slug) => DEPLOYMENTS[slug].rpcUrlVariable);
+    expect(new Set(endpoints).size).toBe(DEPLOYMENT_SLUGS.length);
+    expect(new Set(variables).size).toBe(DEPLOYMENT_SLUGS.length);
   });
 });
 
@@ -71,19 +89,15 @@ describe("resolving a slug", () => {
    * found mid-flight. This is an input condition, and collapsing the two would
    * tell a caller who mistyped a slug to go and check their endpoint.
    */
-  it.each([
-    "arbitrum-sepolia",
-    "arbitrum-sepolia-devnet",
-    "arbitrum-sepolia-testnet",
-    "ethereum",
-    "ARBITRUM-ONE",
-    "42161",
-  ])("refuses %s with CHAIN_NOT_SUPPORTED and never WRONG_CHAIN", (slug) => {
-    const result = resolveDeployment(slug);
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.code).toBe("CHAIN_NOT_SUPPORTED");
-  });
+  it.each(["arbitrum-sepolia", "arbitrum-sepolia-devnet", "ethereum", "ARBITRUM-ONE", "42161"])(
+    "refuses %s with CHAIN_NOT_SUPPORTED and never WRONG_CHAIN",
+    (slug) => {
+      const result = resolveDeployment(slug);
+      expect(result.success).toBe(false);
+      if (result.success) return;
+      expect(result.code).toBe("CHAIN_NOT_SUPPORTED");
+    },
+  );
 
   /**
    * Word for word as `@kleros/agentkit` refuses it. An agent that met this
@@ -135,25 +149,39 @@ describe("resolving a slug", () => {
   );
 
   /**
-   * **The tool's own correction must not lead to a dead end.** The retired-slug
-   * message tells the caller to use `arbitrum-sepolia-testnet`; without its own
-   * sentence that slug falls through to the wording a typo gets, and an agent
-   * following the advice has nothing to tell it the name is real but unserved.
+   * **The tool's own correction must not lead to a dead end**, and now it does
+   * not: the retired-slug message tells the caller to use
+   * `arbitrum-sepolia-testnet`, and that slug resolves.
    *
-   * This assertion is also the tripwire for ticket 04: registering the
-   * deployment makes it fail, which is where the `UNSERVED` entry gets deleted.
+   * This replaces ticket 04's tripwire. While the testnet was unserved, the slug
+   * carried its own `UNSERVED` sentence so an agent following the correction
+   * would not land on the wording a typo gets; registering the deployment was
+   * what that entry asked for, and this assertion is what the entry existed to
+   * make true in the first place.
    */
-  it("says the testnet slug is real but unserved, not that it is unrecognised", () => {
-    const result = resolveDeployment("arbitrum-sepolia-testnet");
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.message).toContain("a real Kleros v2 deployment");
-    expect(result.message).not.toContain("Unsupported chain");
-
+  it("resolves the slug its own retired-slug guidance names", () => {
     const retired = resolveDeployment("arbitrum-sepolia");
     expect(retired.success).toBe(false);
     if (retired.success) return;
     expect(retired.message).toContain("arbitrum-sepolia-testnet");
+
+    expect(resolveDeployment("arbitrum-sepolia-testnet")).toEqual({
+      success: true,
+      data: DEPLOYMENTS["arbitrum-sepolia-testnet"],
+    });
+  });
+
+  /**
+   * The devnet stays refused, and for a reason that is not "unrecognised": its
+   * write surface genuinely differs and this tool has never signed against it.
+   * Serving it would be convenience without verification (`spec` scope note).
+   */
+  it("says the devnet is real but unserved, not that it is unrecognised", () => {
+    const result = resolveDeployment("arbitrum-sepolia-devnet");
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.message).toContain("read by @kleros/agentkit");
+    expect(result.message).not.toContain("Unsupported chain");
   });
 
   it("quotes an unknown slug back rather than guessing at what was meant", () => {

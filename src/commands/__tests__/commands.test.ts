@@ -5,7 +5,12 @@ import { encodeEventTopics, keccak256, toHex } from "viem";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { EXTRA_DATA_VECTORS, TEMPLATE_T1 } from "../../core/__tests__/vectors.js";
 import { contractsFor } from "../../core/deployment.js";
-import { DEFAULT_DEPLOYMENT } from "../../core/deployments.js";
+import {
+  DEFAULT_DEPLOYMENT,
+  DEPLOYMENT_SLUGS,
+  DEPLOYMENTS,
+  type Deployment,
+} from "../../core/deployments.js";
 import { runArbitrationCost, runStatus } from "../read.js";
 import { runCreateDispute, runSubmitEvidence, unknownOutcomeMessage } from "../write.js";
 import {
@@ -16,7 +21,7 @@ import {
   startFakeChain,
 } from "./fake-chain.js";
 
-/** The one deployment served today; ticket 04 makes the double take one. */
+/** The default deployment. The double takes one; the differential test uses both. */
 const contracts = contractsFor(DEFAULT_DEPLOYMENT);
 
 /**
@@ -889,5 +894,250 @@ describe("submit-evidence", () => {
     // broadcasts — so asserting on it would prove nothing. The refusal fires
     // before `simulateContract`, and that is what can be falsified.
     expect(node.contractCalls).not.toContain("EvidenceModule.submitEvidence");
+  });
+});
+
+/**
+ * **The differential test** — `spec/05 §2`, and the reason the suite is not run
+ * as a matrix.
+ *
+ * Mechanics are identical across deployments *by design*, and a design promise
+ * is not a property. This runs the same inputs against both doubles and asserts
+ * the envelopes are structurally identical apart from the deployment fields and
+ * the addresses — which is what would catch a future branch on the deployment: a
+ * cost ceiling skipped on the testnet, a confirmation gate added there, a warning
+ * that only one of them emits.
+ *
+ * It is one test rather than a second run of the suite because the constants are
+ * what differ, not the lines. Doubling the suite would execute the same code
+ * against different numbers and charge every future test for it.
+ */
+describe("the two deployments answer identically", () => {
+  const beta = DEPLOYMENTS["arbitrum-one"];
+  const testnet = DEPLOYMENTS["arbitrum-sepolia-testnet"];
+
+  /**
+   * Canonicalise a payload so that only *unexpected* differences survive.
+   *
+   * **Every served deployment's identity is substituted on both sides, not just
+   * the one under test.** That is the whole design, and the naive version — each
+   * side erasing only its own slug and chain ID — is wrong in a way that bites
+   * the next person rather than this commit. `arbitrum-one` appears in prose
+   * that is *deployment-independent*: `preflight.ts`'s `DISPUTE_KIT_NOT_SUPPORTED`
+   * message names it as where "every court supports Classic" was measured, and
+   * says the same thing on both deployments. Erasing it on the Beta side only
+   * would report a difference that is not there — and the refusal carrying it is
+   * exactly the one someone would add to the refusal case below.
+   *
+   * **Numbers are substituted on digit boundaries, longest first.** `42161` is a
+   * proper prefix of `421614`, so a plain `replaceAll` turns a deployment-
+   * independent `421611` into `<chainId>1` on one side and leaves it whole on
+   * the other. Longest-first ordering plus the boundary makes each chain ID
+   * match only as a complete number.
+   *
+   * **The residual blind spot, stated rather than hidden:** a field whose value
+   * *is* a chain ID and differs per deployment collapses to `<chainId>` on both
+   * sides and is invisible here. That is the difference this helper exists to
+   * erase, so it cannot be distinguished textually — the identity assertions in
+   * each test (`result.data.deployment`, `result.data.chainId`) are what cover
+   * it, and they run before the comparison.
+   */
+  function shape(payload: unknown): string {
+    let json = JSON.stringify(payload);
+
+    // Addresses first: they are unambiguous, and both cases occur — the package
+    // yields checksummed literals while an RPC answers lowercase. No envelope
+    // carries one today, which is why this is written to be correct rather than
+    // to be currently load-bearing.
+    for (const slug of DEPLOYMENT_SLUGS) {
+      const resolved = contractsFor(DEPLOYMENTS[slug]);
+      const roles = [
+        [resolved.klerosCore.address, "<klerosCore>"],
+        [resolved.disputeResolver.address, "<disputeResolver>"],
+        [resolved.evidenceModule.address, "<evidenceModule>"],
+        [resolved.disputeTemplateRegistry.address, "<templateRegistry>"],
+      ] as const;
+      for (const [address, placeholder] of roles) {
+        json = json.replaceAll(address, placeholder).replaceAll(address.toLowerCase(), placeholder);
+      }
+    }
+
+    for (const slug of DEPLOYMENT_SLUGS) json = json.replaceAll(slug, "<slug>");
+
+    const chainIds = DEPLOYMENT_SLUGS.map((slug) => String(DEPLOYMENTS[slug].chainId)).sort(
+      (a, b) => b.length - a.length,
+    );
+    for (const chainId of chainIds) {
+      json = json.replace(new RegExp(`(?<![0-9])${chainId}(?![0-9])`, "g"), "<chainId>");
+    }
+
+    return json;
+  }
+
+  /**
+   * A healthy node for one deployment. **The dispute record has to name that
+   * deployment's own arbitrable**, because `submit-evidence` refuses a dispute
+   * belonging to a foreign one (`ADR-0014`) — so a fixture holding the default's
+   * resolver address would make the testnet run refuse for a reason that has
+   * nothing to do with what this test compares.
+   */
+  async function on(deployment: Deployment): Promise<FakeChain> {
+    const resolved = contractsFor(deployment);
+    return chain({
+      deployment,
+      core: healthyCore({
+        disputes: () => [1n, resolved.disputeResolver.address, 0, false, 1_756_900_000n],
+      }),
+      resolver: healthyDeployment(deployment).resolver,
+    });
+  }
+
+  it("quote the same arbitration cost envelope, from the same calls", async () => {
+    const results = [];
+    const calls = [];
+    for (const deployment of [beta, testnet]) {
+      const node = await on(deployment);
+      const result = await runArbitrationCost({
+        chain: deployment.slug,
+        rpcUrl: node.url,
+        court: "1",
+        jurors: "3",
+        kit: "1",
+      });
+      expect(result.success, `${deployment.slug}: ${!result.success && result.message}`).toBe(true);
+      if (!result.success) return;
+      // The identity assertions run **before** the comparison, and they are what
+      // covers `shape`'s one blind spot: a value that *is* the chain ID.
+      expect(result.data.deployment).toBe(deployment.slug);
+      expect(result.data.chainId).toBe(deployment.chainId);
+      results.push(shape(result.data));
+      calls.push(node.contractCalls);
+    }
+    expect(results[0]).toBe(results[1]);
+    // **The envelope comparison cannot see which contract was called.** The
+    // double routes by address, so a branch that read a different contract on
+    // one deployment could still produce a matching payload.
+    expect(calls[0]).toEqual(calls[1]);
+  });
+
+  /**
+   * The write path, stopped at simulation. **The `extraData` is byte-identical**
+   * across the two and is deliberately not substituted out: the court, juror
+   * count and kit are the deployment-independent half of the payload, and a blob
+   * that differed would mean the encoder had learned about the deployment.
+   */
+  it("plan the same dispute, down to the extraData and the value", async () => {
+    const results = [];
+    const calls = [];
+    for (const deployment of [beta, testnet]) {
+      const node = await on(deployment);
+      const result = await runCreateDispute({
+        chain: deployment.slug,
+        rpcUrl: node.url,
+        keyFile,
+        requireSigner: true,
+        court: "1",
+        jurors: "3",
+        kit: "1",
+        templateFile,
+        maxCostEth: "1",
+        broadcast: false,
+      });
+      expect(result.success, `${deployment.slug}: ${!result.success && result.message}`).toBe(true);
+      if (!result.success) return;
+      expect(result.data.deployment).toBe(deployment.slug);
+      expect(result.data.chainId).toBe(deployment.chainId);
+      expect(result.data.extraData).toBe(X1.blob);
+      results.push(shape(result.data));
+      calls.push(node.contractCalls);
+    }
+    expect(results[0]).toBe(results[1]);
+    expect(calls[0]).toEqual(calls[1]);
+  });
+
+  it("plan the same evidence submission", async () => {
+    const results = [];
+    const calls = [];
+    for (const deployment of [beta, testnet]) {
+      const node = await on(deployment);
+      const result = await runSubmitEvidence({
+        chain: deployment.slug,
+        rpcUrl: node.url,
+        keyFile,
+        requireSigner: true,
+        dispute: "216",
+        name: "Delivery photographs",
+        description: "The parcel arrived opened.",
+        broadcast: false,
+      });
+      expect(result.success, `${deployment.slug}: ${!result.success && result.message}`).toBe(true);
+      if (!result.success) return;
+      expect(result.data.deployment).toBe(deployment.slug);
+      expect(result.data.chainId).toBe(deployment.chainId);
+      results.push(shape(result.data));
+      calls.push(node.contractCalls);
+    }
+    expect(results[0]).toBe(results[1]);
+    expect(calls[0]).toEqual(calls[1]);
+  });
+
+  /**
+   * **A refusal must refuse on both.** This is the half a success-path
+   * comparison cannot cover: a safety check quietly relaxed on the testnet would
+   * still produce matching success envelopes for the inputs above, because those
+   * inputs never trip it. The cost ceiling is the one that spends money when it
+   * is missing (`ADR-0004`).
+   */
+  it("refuse the same way when the cost ceiling is exceeded", async () => {
+    const codes = [];
+    const messages = [];
+    for (const deployment of [beta, testnet]) {
+      const node = await on(deployment);
+      const result = await runCreateDispute({
+        chain: deployment.slug,
+        rpcUrl: node.url,
+        keyFile,
+        requireSigner: true,
+        court: "1",
+        jurors: "3",
+        kit: "1",
+        templateFile,
+        maxCostEth: "0.000000000000000001",
+        broadcast: false,
+      });
+      expect(result.success).toBe(false);
+      if (result.success) return;
+      codes.push(result.code);
+      // The message is the core's; the deployment suffix is appended by the
+      // command layer's error envelope (`shared.ts`) and so is not in it here.
+      // What is compared is that both deployments refuse identically, before the
+      // write — `messages` is checked after the loop.
+      messages.push(shape(result.message));
+      expect(node.contractCalls).not.toContain("DisputeResolver.createDisputeForTemplate");
+    }
+    expect(codes[0]).toBe(codes[1]);
+    expect(codes[0]).toBe("COST_CEILING_EXCEEDED");
+    expect(messages[0]).toBe(messages[1]);
+  });
+
+  /**
+   * The chain assertion is the deployment's own, not a constant — the command
+   * layer's half of the ordering test in `client.test.ts`. A double answering as
+   * Arbitrum One while the testnet is selected must be refused with nothing read.
+   */
+  it("refuse an endpoint serving the other deployment's chain", async () => {
+    const node = await chain({ deployment: testnet, chainId: beta.chainId });
+    const result = await runArbitrationCost({
+      chain: testnet.slug,
+      rpcUrl: node.url,
+      court: "1",
+      jurors: "3",
+      kit: "1",
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.code).toBe("WRONG_CHAIN");
+    expect(node.contractCalls).toEqual([]);
   });
 });

@@ -426,7 +426,9 @@ export const chainOptions = {
     .optional()
     .describe(
       "RPC URL for the selected deployment's chain, comma-separated for automatic fallback. " +
-        "Defaults to that deployment's public endpoint, which is rate-limited. The chain " +
+        `Falls back to ${overrideVariables()}, then to that deployment's public endpoint, ` +
+        "which is rate-limited. The variable is per deployment and configures transport only: " +
+        "nothing outside this command line can select which deployment is acted on. The chain " +
         "assertion runs against whatever this points at.",
     ),
 };
@@ -436,6 +438,20 @@ function glossedSlugs(): string {
   return Object.values(DEPLOYMENTS)
     .map((deployment) => `${deployment.slug} (${deployment.name})`)
     .join(", ");
+}
+
+/**
+ * The override variables, named rather than described by formula.
+ *
+ * **An agent cannot apply a formula it is only told about**, and this CLI is
+ * self-documenting for exactly that reader — so the names are rendered from the
+ * table, which is also why adding a deployment cannot leave this listing one
+ * short. It deliberately does not repeat the gloss: `--chain` owns that.
+ */
+function overrideVariables(): string {
+  return Object.values(DEPLOYMENTS)
+    .map((deployment) => deployment.rpcUrlVariable)
+    .join(" / ");
 }
 
 export const writeOptions = {
@@ -488,7 +504,8 @@ export const extraDataOptions = {
     .string()
     .default("1")
     .describe(
-      "Dispute kit ID. 1 is Classic, the kit every court on arbitrum-one supports. A few courts " +
+      "Dispute kit ID. 1 is Classic, the kit every court supports on arbitrum-one, where that " +
+        "was measured. A few courts " +
         "support others as well, and kit support is re-read on every invocation for the selected " +
         "deployment rather than assumed.",
     ),
@@ -540,9 +557,10 @@ export function prepareLocal(options: PrepareOptions): KlerosResult<LocallyPrepa
   const deployment = resolveDeployment(options.chain);
   if (!deployment.success) return deployment;
 
-  // There is deliberately no environment variable for the endpoint: `spec/03 §3`
-  // fixes the option set, and the one thing this CLI reads from outside the
-  // command line is the key file, whose path is itself an option.
+  // The endpoint resolves flag > the **selected deployment's own** override
+  // variable > that deployment's default (`ADR-0016`, `spec/03 §3.1`). The
+  // environment configures transport and never target: nothing ambient selects a
+  // deployment, and the signing key is still refused from it entirely.
   const rpcUrls = parseRpcUrls(options.rpcUrl, deployment.data);
 
   const signer = loadSigner({ path: options.keyFile });

@@ -1,5 +1,6 @@
 import type { PublicClient } from "viem";
 import type { MulticallEntry, Outcome } from "../client.js";
+import { DEFAULT_DEPLOYMENT } from "../deployments.js";
 
 /**
  * A stand-in for `PublicClient` holding only the methods `client.ts` and
@@ -32,7 +33,7 @@ export function fakeClient(options: FakeClientOptions = {}): FakeClient {
   const client = {
     calls,
     async getChainId() {
-      const { chainId = 42161 } = options;
+      const { chainId = DEFAULT_DEPLOYMENT.chainId } = options;
       return typeof chainId === "function" ? chainId() : chainId;
     },
     async getBlock() {

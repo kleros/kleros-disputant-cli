@@ -215,8 +215,8 @@ export function checkExtraData({
     return err(
       "DISPUTE_KIT_NOT_SUPPORTED",
       `Court ${courtID} does not support dispute kit ${disputeKitID}. Kit support is per court, ` +
-        "and read live rather than tabled: on arbitrum-one every court supports Classic " +
-        "(kit 1) and a few support others. Nothing was sent.",
+        "and read live from the selected deployment rather than tabled: on arbitrum-one every " +
+        "court supports Classic (kit 1) and a few support others. Nothing was sent.",
       { courtID: courtID.toString(), disputeKitID: disputeKitID.toString() },
     );
   }

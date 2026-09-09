@@ -78,9 +78,25 @@ envelope renders nothing else ([ADR-0013](../adr/0013-the-rpc-cause-travels-in-t
 CTA **MUST** carry `--chain`: a continuation command without it re-resolves to the default and would
 answer from a deployment other than the one that refused.
 
-**The environment configures transport, never target.** Each deployment names its own RPC override
-variable, derived by the formula `@kleros/agentkit` uses so one exported variable serves both tools.
-**No environment variable and no configuration file selects the deployment** — only the flag does.
+**The environment configures transport, never target**
+([ADR-0016](../adr/0016-the-environment-configures-transport-never-target.md)). Each deployment
+names its own RPC override variable, derived by the formula `@kleros/agentkit` uses so one exported
+variable serves both tools. **No environment variable and no configuration file selects the
+deployment** — only the flag does.
+
+An endpoint resolves in three levels, and the order is normative:
+
+1. `--rpc-url`, which **MUST** outrank everything below it. A comma-separated list is failover.
+2. **That deployment's own** override variable — `KLEROS_RPC_URL_ARBITRUM_ONE`,
+   `KLEROS_RPC_URL_ARBITRUM_SEPOLIA_TESTNET`. It **MUST** be per deployment: there **MUST NOT** be a
+   variable whose value applies to whichever deployment happens to be selected, because that is what
+   would let an ambient value follow a caller across deployments.
+3. That deployment's default public endpoint, which is rate-limited.
+
+The variable names **MUST** be rendered into `--rpc-url`'s own description from the deployment
+table. A formula an agent is only told about is one it cannot apply, and a hand-written list is one
+that goes stale. The signing key is untouched by any of this and is still refused from the
+environment entirely ([§6](#6-signer)).
 
 **The option set above is closed**, and the receipt timeout is the one thing that pays for it.
 There is no `--timeout`: how long to wait before reporting `status: "unknown"` is fixed in
@@ -128,7 +144,7 @@ field — a true refusal with a misleading reason.
 | --- | --- | --- |
 | `--file` | yes | Path to the local file. The **only** path this tool ever reads that is not a key or a template |
 | `--publish` | no | Default `false`. Without it the command checks the file and stops. **Not** `--broadcast`: nothing is broadcast to a chain |
-| `--upload-url` | no | Override the endpoint. No environment variable, per [§3.1](#31-shared) |
+| `--upload-url` | no | Override the endpoint. **No environment variable** — §3.1's override variables are per *deployment*, and `upload-file` has none ([§3.4](#34-upload-file)) |
 | `--verify` | no | Default `true`. `--no-verify` skips the round-trip check — [06 §4.2](./06-attachment-upload.md). Named `verify`, because incur reads a leading `--no-` as its own negation prefix and an option *named* `no-verify` is unreachable |
 
 It takes **none** of `--chain`, `--rpc-url`, `--key-file`, `--broadcast` or `--max-fee-gwei`. There

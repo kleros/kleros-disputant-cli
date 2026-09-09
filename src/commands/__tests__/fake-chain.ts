@@ -9,16 +9,10 @@ import {
   toHex,
 } from "viem";
 import { contractsFor } from "../../core/deployment.js";
-import { DEFAULT_DEPLOYMENT } from "../../core/deployments.js";
+import { DEFAULT_DEPLOYMENT, type Deployment } from "../../core/deployments.js";
 
 /**
- * The deployment this double answers as. It is the default one today; ticket 04
- * makes it a parameter so the same double can answer as either.
- */
-const deployed = contractsFor(DEFAULT_DEPLOYMENT);
-
-/**
- * An in-process Arbitrum One, answering from the **real ABIs**.
+ * An in-process deployment, answering from the **real ABIs**.
  *
  * `startRpcServer` in `src/core/__tests__` answers one canned value per JSON-RPC
  * method, which is enough to see a signed transaction but not enough to drive a
@@ -58,6 +52,24 @@ export type FakeChainOptions = {
   core?: Answers;
   resolver?: Answers;
   evidenceModule?: Answers;
+
+  /**
+   * **The deployment this double answers as**, defaulting to `arbitrum-one`.
+   *
+   * It fixes three things together, which is what makes it worth being one
+   * option rather than three: the addresses calls are routed by, the ABIs they
+   * are decoded against, and the chain ID `eth_chainId` reports. A double whose
+   * addresses and chain ID could be set apart would let a test pass a
+   * combination no endpoint can serve.
+   */
+  deployment?: Deployment;
+
+  /**
+   * Overrides the chain ID the deployment implies, **to model a mis-pointed
+   * endpoint**: the addresses stay the selected deployment's while the node
+   * answers as somewhere else, which is exactly the state `assertChain` exists
+   * to catch. Leave it unset for a healthy node.
+   */
   chainId?: number;
   balanceWei?: bigint;
   gas?: bigint;
@@ -101,6 +113,9 @@ export async function startFakeChain(options: FakeChainOptions = {}): Promise<Fa
   const methods: string[] = [];
   const contractCalls: string[] = [];
   const sent: Hex[] = [];
+
+  const deployment = options.deployment ?? DEFAULT_DEPLOYMENT;
+  const deployed = contractsFor(deployment);
 
   const contracts: { contract: Contract; answers: Answers }[] = [
     {
@@ -192,7 +207,7 @@ export async function startFakeChain(options: FakeChainOptions = {}): Promise<Fa
       try {
         switch (payload.method) {
           case "eth_chainId":
-            result = toHex(options.chainId ?? 42161);
+            result = toHex(options.chainId ?? deployment.chainId);
             break;
           case "eth_call":
             result = ethCall(params);
@@ -294,7 +309,12 @@ export async function startFakeChain(options: FakeChainOptions = {}): Promise<Fa
  * pins, so `spec/03 §7`'s startup checks pass and a test can be about something
  * else. Spread over it to make one of them disagree.
  */
-export function healthyDeployment(): { core: Answers; resolver: Answers; evidenceModule: Answers } {
+export function healthyDeployment(deployment: Deployment = DEFAULT_DEPLOYMENT): {
+  core: Answers;
+  resolver: Answers;
+  evidenceModule: Answers;
+} {
+  const deployed = contractsFor(deployment);
   return {
     core: { version: () => "0.10.0" },
     resolver: {
@@ -302,7 +322,11 @@ export function healthyDeployment(): { core: Answers; resolver: Answers; evidenc
       templateRegistry: () => deployed.disputeTemplateRegistry.address,
       // Arbitrum One's own default: the resolver created every dispute there, so
       // core and local coincide for all of them (`spec/01 §7`). Override it to
-      // get the divergence production cannot show.
+      // get the divergence production cannot show — which is why the
+      // identifier-divergence tests use this double at its **default**
+      // deployment rather than the testnet's: the defect is reachable on
+      // Arbitrum One the day a second arbitrable files there, and putting the
+      // fixture on the testnet would re-encode the belief ADR-0014 disproves.
       arbitratorDisputeIDToLocalID: ([coreDisputeID]) => coreDisputeID as bigint,
     },
     evidenceModule: { version: () => "0.8.0" },

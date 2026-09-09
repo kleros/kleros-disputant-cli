@@ -2,6 +2,7 @@ import {
   getAddress as getDeployedAddress,
   mainnetViem,
   deployments as packageDeployments,
+  testnetViem,
 } from "@kleros/kleros-v2-contracts/cjs/deployments";
 import type { Deployment } from "./deployments.js";
 
@@ -43,6 +44,21 @@ import type { Deployment } from "./deployments.js";
  * interchangeable** — the arbitrator's ABIs genuinely differ between deployments
  * — so they are bound per deployment rather than shared, and the fingerprint
  * test records the difference.
+ *
+ * Measured from the installed `@kleros/kleros-v2-contracts@2.0.0-rc.2` rather
+ * than from chain **[abi]**: `disputeResolverAbi` and `evidenceModuleAbi` are
+ * **byte-identical** across the two, and `klerosCoreAbi` is not — 126 entries on
+ * `mainnet` against 118 on `testnet`. Nine are Beta-only (`arbitrableWhitelist`,
+ * `changeArbitrableWhitelist`, `jurorNft`, `changeJurorNft`, four errors
+ * including `ArbitrableNotWhitelisted`, and a twelve-argument `initialize`); one
+ * is testnet-only, the same `initialize` with eleven.
+ *
+ * **No entry this tool calls is among them**, which is why the mechanics are
+ * identical on both deployments rather than merely intended to be. Sharing one
+ * namespace would still be wrong: `arbitrableWhitelist` is exactly the fragment
+ * a future read would reach for, and on the testnet its selector reverts bare
+ * **[live]** — a shared namespace would let that call be encoded and leave the
+ * revert to explain itself.
  */
 const ABIS = {
   mainnet: {
@@ -50,9 +66,24 @@ const ABIS = {
     disputeResolver: mainnetViem.disputeResolverAbi,
     evidenceModule: mainnetViem.evidenceModuleAbi,
   },
+  testnet: {
+    klerosCore: testnetViem.klerosCoreAbi,
+    disputeResolver: testnetViem.disputeResolverAbi,
+    evidenceModule: testnetViem.evidenceModuleAbi,
+  },
 } as const;
 
-/** The `*Config` records, which is where the chain-keyed address maps live. */
+/**
+ * The `*Config` records, which is where the chain-keyed address maps live.
+ *
+ * **`disputeResolverRuler` is absent on the testnet**, and the absence is the
+ * package's rather than an omission here: that deployment has no ruler at all,
+ * so there is no address to pin and nothing for the write target to be confused
+ * with. It is left `undefined` rather than filled in with Beta's, which would
+ * name a contract that does not exist on the selected deployment — and
+ * `deployment.test.ts` asserts the write target is not the ruler only where
+ * there is one, so the guard returns by itself if the package ever adds it.
+ */
 const CONFIGS = {
   mainnet: {
     klerosCore: mainnetViem.klerosCoreConfig,
@@ -60,6 +91,13 @@ const CONFIGS = {
     evidenceModule: mainnetViem.evidenceModuleConfig,
     disputeTemplateRegistry: mainnetViem.disputeTemplateRegistryConfig,
     disputeResolverRuler: mainnetViem.disputeResolverRulerConfig,
+  },
+  testnet: {
+    klerosCore: testnetViem.klerosCoreConfig,
+    disputeResolver: testnetViem.disputeResolverConfig,
+    evidenceModule: testnetViem.evidenceModuleConfig,
+    disputeTemplateRegistry: testnetViem.disputeTemplateRegistryConfig,
+    disputeResolverRuler: undefined,
   },
 } as const;
 
@@ -79,7 +117,10 @@ export type DeploymentContracts = ReturnType<typeof resolveContracts>;
 function resolveContracts(deployment: Deployment) {
   const abis = ABIS[deployment.packageKey];
   const configs = CONFIGS[deployment.packageKey];
-  const at = (config: (typeof configs)[keyof typeof configs]) =>
+  // `NonNullable`, because `disputeResolverRuler` is `undefined` on a deployment
+  // that has no ruler. Narrowing here rather than widening `at` keeps the absence
+  // a case the caller must handle instead of a lookup that returns nothing.
+  const at = (config: NonNullable<(typeof configs)[keyof typeof configs]>) =>
     getDeployedAddress(config, deployment.chainId);
 
   return {
@@ -128,11 +169,17 @@ function resolveContracts(deployment: Deployment) {
      *
      * `KlerosCoreRuler` is deliberately absent: a developer tool for arbitrable
      * developers, with no bearing on this CLI.
+     *
+     * **`undefined` where the deployment has no ruler.** The testnet has none in
+     * the contracts package, so there is nothing to pin and nothing the write
+     * target could be confused with. That is a weaker guarantee than Beta's, and
+     * naming it here is the point: the control is vacuous rather than enforced,
+     * and it comes back on its own if the package ever ships one.
      */
-    disputeResolverRuler: {
-      address: at(configs.disputeResolverRuler),
-      name: "DisputeResolverRuler",
-    },
+    disputeResolverRuler:
+      configs.disputeResolverRuler === undefined
+        ? undefined
+        : { address: at(configs.disputeResolverRuler), name: "DisputeResolverRuler" },
   } as const;
 }
 

@@ -34,6 +34,71 @@ dispute kit — KlerosCore's five registered kits are the NULL kit plus four `Di
 **[live]** — so it could not fire. `KlerosCoreRuler` is **not** in scope at all: a developer tool for
 arbitrable developers **[maintainer]**.
 
+### 1.0a Deployment, Arbitrum Sepolia v2 testnet (chain ID 421614)
+
+**[abi]**, cross-checked **[live]** against Arbitrum Sepolia at block `307207899` on 2026-09-09. The
+second served deployment ([ADR-0015](../adr/0015-a-deployment-is-not-a-chain.md)), selected by
+`--chain arbitrum-sepolia-testnet`. **Three Kleros v2 deployments answer chain ID 421614**, so the
+chain ID does not identify this one; the address set does.
+
+| Contract | Address | `version()` | CLI use |
+| --- | --- | --- | --- |
+| `KlerosCore` | `0xE8442307d36e9bf6aB27F1A009F95CE8E11C3479` | `0.10.0` **[live]** | Read only: cost, court, kit support, dispute state |
+| `DisputeResolver` | `0xed31bEE8b1F7cE89E93033C0d3B2ccF4cEb27652` | *no `version()`* **[abi]** | **Write target. Dispute creation** |
+| `EvidenceModule` | `0xA88A9a25cE7f1d8b3941dA3b322Ba91D009E1397` | `0.8.0` **[live]** | **Write target. Evidence** |
+| `DisputeTemplateRegistry` | `0xe763d31Cb096B4bc7294012B78FC7F148324ebcb` | — | Written to indirectly |
+
+**[live]** This deployment is internally consistent in the same way v2 Beta is:
+`DisputeResolver.arbitrator()` returns the `KlerosCore` above and `DisputeResolver.templateRegistry()`
+returns the registry above, so `spec/03 §7` step 4 holds here without a per-deployment variant.
+`KlerosCore`, `EvidenceModule` and `DisputeTemplateRegistry` are ERC-1967 proxies at these
+addresses; `DisputeResolver` is not.
+
+**No `DisputeResolverRuler` and no `KlerosCoreRuler`** — this deployment has neither in the
+contracts package. The refuse-by-name control above is therefore **vacuous here rather than
+enforced**: there is no address to be confused with. `deployment.ts` carries the absence as
+`undefined` instead of substituting v2 Beta's, and the fingerprint test asserts the write target is
+not the ruler only where there is one, so the guard returns by itself if one is ever shipped.
+
+`DisputeResolver`'s package config is **chain-keyed and holds more than one chain** — a Gnosis
+Chiado entry sits alongside 421614 — so it **MUST** be resolved through the package's own
+`getAddress(config, chainId)` with the deployment's chain ID. Indexing it any other way returns a
+contract on a different chain rather than failing.
+
+The versions above are **the same as v2 Beta's** for the two contracts that expose one — measured,
+not assumed — so `EXPECTED_VERSIONS` is **deployment-independent** and there is deliberately no
+per-deployment version table.
+
+### 1.0b The ABI difference between the two deployments
+
+**[abi]**, from the installed `@kleros/kleros-v2-contracts@2.0.0-rc.2`. **The two ABI namespaces
+are not interchangeable and MUST be bound per deployment.**
+
+- `disputeResolverAbi` and `evidenceModuleAbi` are **byte-identical** across the two.
+- `klerosCoreAbi` is not: **126 entries on `mainnet` against 118 on `testnet`.** Nine are Beta-only
+  — `arbitrableWhitelist`, `changeArbitrableWhitelist`, `jurorNft`, `changeJurorNft`, the errors
+  `ArbitrableNotWhitelisted`, `NotEligibleForStaking`, `StakingMoreThanMaxStakePerJuror` and
+  `StakingMoreThanMaxTotalStaked`, and a twelve-argument `initialize`. One is testnet-only: the same
+  `initialize` with eleven.
+
+**No entry this tool calls is among them.** That is why the mechanics are identical on both
+deployments rather than merely intended to be, and it is pinned by test rather than asserted here
+([05 §1.6](./05-verification.md)).
+
+Sharing one namespace would still be wrong. `arbitrableWhitelist` is exactly the fragment a future
+read would reach for, and the testnet's `klerosCoreAbi` does not declare it **[abi]** — while the
+same calldata returns `false` against v2 Beta **[live]**. A shared namespace would let that call be
+encoded and leave the revert to explain itself. The whitelist is a **v2 Beta property** and not the
+protocol's, which is why `CONTEXT.md` demotes it from the justification for routing through
+`DisputeResolver` to how that constraint was discovered.
+
+> **The live call corroborates the absence; it does not establish it.** Sending the selector to the
+> testnet `KlerosCore` reverts with **empty revert data** **[live]**, and so does a garbage selector
+> — the public RPC answers `code 3, data "0x"` for both, which is what an ERC-1967 proxy fallback
+> produces when the implementation has no such function. What a bare revert proves is "does not
+> answer here", not "absent from the ABI". **[abi]** is the load-bearing marker for the absence, and
+> the fingerprint test asserts against the package rather than against a revert.
+
 ### 1.1 Importing the deployment
 
 Addresses and ABIs **MUST** be imported from `@kleros/kleros-v2-contracts` and **MUST NOT** be

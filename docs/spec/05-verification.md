@@ -90,6 +90,24 @@ fails the build rather than a transaction. At minimum:
 - The addresses in [01 §1](./01-onchain-reference.md) are what the package resolves for 42161 —
   including both governance override contracts, which are refused by name.
 
+**The fingerprint covers every served deployment, and carries one address table per deployment.**
+The testnet's addresses are those in [01 §1.0a](./01-onchain-reference.md), resolved and pinned the
+same way, so neither deployment can move quietly.
+
+- The shape assertions above **MUST** run against **every** served deployment, not only the default.
+  They are pure and offline, and they are the build-time half of "no path exists on one deployment
+  only": a called fragment diverging is what they would catch.
+- A test **MUST** record the measured ABI difference in [01 §1.0b](./01-onchain-reference.md) —
+  which entries are Beta-only and which testnet-only — so an upstream regeneration breaks the build
+  rather than a transaction.
+- A test **MUST** assert `arbitrableWhitelist` is present on `arbitrum-one` and **absent** on the
+  testnet. This is the build-time half of the whitelist being a v2 Beta property.
+- The ruler assertion **MUST** be skipped where the deployment has no ruler, rather than rewritten
+  to assert the absence — so it returns by itself if the package ever ships one.
+- **Accepted cost, and the only ongoing maintenance this feature adds:** a testnet redeployment
+  fails this block. That is intended — a redeployment silently changes where transactions are sent
+  — so a failure here is a question about what moved, never a number to update.
+
 ### 1.6a Which dispute identifier is signed
 
 The defect these close was invisible on Arbitrum One, where all three identifiers coincide, so the
@@ -113,6 +131,36 @@ fixtures come from the v2 testnet **[live]** and are stated in
 - A test **MUST** assert that a mapping read which *fails* is reported as `DEPLOYMENT_INCONSISTENT`
   and never as a missing local ID. A public mapping getter cannot revert.
 - A test **MUST** assert that both reads share one multicall.
+
+### 1.6b Two deployments, and why the suite is not a matrix
+
+**The second deployment appears in exactly four places, and the suite is NOT run twice.** Mechanics
+are identical across deployments by design, so a matrix would execute the same lines against
+different constants — a slower suite and a standing tax on every future test, for duplicate
+coverage. The four:
+
+- **The fingerprint** ([§1.6](#16-deployment-fingerprint)), which is pure and offline.
+- **A differential test.** The same inputs against both deployments, asserting the envelopes are
+  **structurally identical apart from the deployment fields and the addresses**. It **MUST** cover a
+  read, both writes stopped at simulation, and **at least one refusal** — a success-path comparison
+  alone cannot see a safety check relaxed on one deployment, because the inputs never trip it. This
+  is what turns "identical mechanics" from a design promise into a pinned property, and it is the
+  test that catches a future branch on the deployment: a cost ceiling skipped on the testnet, a
+  confirmation gate added there, a warning only one of them emits.
+- **The startup ordering at the testnet chain ID**, proving the expected value is read from the
+  selected deployment rather than a constant, and that no contract call precedes the assertion. It
+  **MUST** also assert the batch carries **that deployment's** addresses — the half a chain-ID
+  assertion cannot check.
+- **The unsupported-slug refusals**, asserting zero network round trips.
+
+The in-process JSON-RPC double **MUST** take a deployment and answer as either one, from the real
+ABIs. The seam stays the endpoint option: nothing injected, no module mocked. Its chain ID
+**MUST** default to that deployment's, with an explicit override reserved for modelling a
+mis-pointed endpoint — a double whose addresses and chain ID could be set apart independently would
+let a test pass a combination no endpoint can serve.
+
+**A differential test that cannot fail is worse than none.** It **SHOULD** be falsified once, by
+introducing a deliberate branch on the deployment and confirming the comparison catches it.
 
 ### 1.7 Output and safety
 

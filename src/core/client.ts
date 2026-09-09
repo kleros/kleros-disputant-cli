@@ -25,22 +25,40 @@ import { err, type KlerosResult, ok } from "./result.js";
  */
 
 /**
- * `--rpc-url` may carry a comma-separated list, and falls back to the selected
- * deployment's own default endpoint.
+ * The endpoints for one invocation, in precedence order: `--rpc-url`, then the
+ * selected deployment's own override variable, then its default endpoint. Each
+ * level may carry a comma-separated list, which `fallback` treats as failover.
  *
- * There is deliberately **no environment variable read here**: `spec/03 §3.1`
- * fixes the option set, and the one thing this CLI reads from outside the
- * command line is the key file, whose path is itself an option (`spec/03 §6`).
- * The per-deployment override variable each deployment names is transport
- * configuration and lands with the second deployment; nothing about it can ever
- * select the **target** (`deployments.ts`).
+ * **The environment configures transport, never target** (`spec/03 §3.1`,
+ * `deployments.ts`). The variable is named per deployment — agentkit's formula,
+ * so one exported value serves both tools — and that is what makes the rule
+ * enforceable rather than merely stated: there is no variable whose value
+ * applies to whichever deployment happens to be selected, so setting one cannot
+ * move a transaction from one deployment to another. It moves only *where the
+ * chain it already named is reached*, and `assertChain` then checks that
+ * endpoint answers with the expected chain ID.
+ *
+ * **`--rpc-url` outranks it**, which is the other half of the rule: the flag is
+ * what the invocation said, and an ambient value must never overrule it. The
+ * signing key is still refused from the environment entirely (`spec/03 §6`) —
+ * that is a different question and this does not soften it.
  */
 export function parseRpcUrls(value: string | undefined, deployment: Deployment): string[] {
-  const urls = (value ?? "")
+  const fromFlag = splitUrls(value);
+  if (fromFlag.length > 0) return fromFlag;
+
+  const fromEnv = splitUrls(process.env[deployment.rpcUrlVariable]);
+  if (fromEnv.length > 0) return fromEnv;
+
+  return [deployment.defaultRpcUrl];
+}
+
+/** A comma-separated list, trimmed, with empty entries dropped. */
+function splitUrls(value: string | undefined): string[] {
+  return (value ?? "")
     .split(",")
     .map((url) => url.trim())
     .filter((url) => url.length > 0);
-  return urls.length > 0 ? urls : [deployment.defaultRpcUrl];
 }
 
 /**

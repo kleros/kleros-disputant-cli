@@ -203,8 +203,9 @@ const cli = Cli.create("kleros-disputant", {
         .describe(
           "The core dispute ID — the one Kleros Court shows for the case. Two IDs are refused, " +
             "because the submission would succeed and then be unreachable: one no dispute uses, " +
-            "and one whose dispute a different arbitrable contract created. Every dispute on " +
-            "arbitrum-one is reachable today, however it was filed.",
+            "and one whose dispute a different arbitrable contract created. On arbitrum-one " +
+            "every dispute is reachable today, however it was filed; on other deployments the " +
+            "second refusal is reachable, so do not read it as unreachable code.",
         ),
       name: z
         .string()

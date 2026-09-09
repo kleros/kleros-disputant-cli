@@ -85,8 +85,11 @@ additionally publishes to a Graph node.
 
 Overridable with `--upload-url`, mirroring the `NEXT_PUBLIC_COURT_FUNCTIONS_URL` the reputation
 oracle exposes — because this is a service rather than a contract, and its availability and terms
-are somebody else's to change. There is no environment variable for it: `spec/03 §3` fixes how
-this CLI takes input.
+are somebody else's to change. There is no environment variable for it, and that survived
+[ADR-0016](./0016-the-environment-configures-transport-never-target.md): the override variables it
+admits are named **per deployment**, and `upload-file` has no deployment — it signs nothing, reads
+no chain and loads no key. So there is no name to derive one from, which is a better reason than
+the one this line used to give.
 
 ### What was measured before anything was built
 

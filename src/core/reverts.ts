@@ -60,6 +60,12 @@ type AbiErrorEntry = { type: string; name?: string; inputs?: readonly { type: st
  *
  * Names shared across ABIs (`AlreadyInitialized`, the UUPS pair) carry the same
  * selector by construction, so the merge cannot disagree with itself.
+ *
+ * **Measured when the second deployment was registered [abi]:** the union is not
+ * merely a superset by luck. The v2 testnet's `KlerosCore` declares **no error
+ * v2 Beta does not** — the difference runs the other way, four Beta-only errors
+ * including `ArbitrableNotWhitelisted` (`spec/01 §1.0b`) — so every selector the
+ * testnet can put on the wire was already in this table before it was served.
  */
 const SERVED_ABIS = DEPLOYMENT_SLUGS.flatMap((slug) => {
   const contracts = contractsFor(DEPLOYMENTS[slug]);

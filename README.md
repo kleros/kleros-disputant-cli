@@ -1,7 +1,7 @@
 <h1 align="center">⚖️ kleros-disputant-cli</h1>
 
 <p align="center">
-  <strong>A headless CLI that creates Kleros v2 disputes and submits evidence on Arbitrum One.</strong><br>
+  <strong>A headless CLI that creates Kleros v2 disputes and submits evidence on Arbitrum One, and on the Arbitrum Sepolia testnet.</strong><br>
   One-shot commands, no daemon, JSON in and JSON out.<br>
   <sub>package <code>@kleros/kleros-disputant-cli</code> · binary <code>kleros-disputant</code></sub>
 </p>
@@ -9,7 +9,7 @@
 <p align="center">
   <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg">
   <img alt="Node >=22" src="https://img.shields.io/badge/node-%3E%3D22-3c873a.svg">
-  <img alt="Chain: Arbitrum One" src="https://img.shields.io/badge/chain-Arbitrum%20One%20(42161)-28a0f0.svg">
+  <img alt="Chains: Arbitrum One and Arbitrum Sepolia" src="https://img.shields.io/badge/chains-Arbitrum%20One%20%7C%20Arbitrum%20Sepolia-28a0f0.svg">
   <img alt="Status: pre-release" src="https://img.shields.io/badge/status-pre--release-orange.svg">
 </p>
 
@@ -26,7 +26,8 @@
 Today, creating a Kleros v2 dispute means opening the Court web client and signing in a browser.
 That rules out the party who is a server, a cron job, or an autonomous agent.
 
-This CLI makes the same two writes directly against Arbitrum One:
+This CLI makes the same two writes directly against the selected deployment — Arbitrum One by
+default:
 
 ```
    create-dispute                       submit-evidence
@@ -77,11 +78,14 @@ Nothing is published to npm yet, deliberately — see [`CHANGELOG.md`](CHANGELOG
 ## Requirements
 
 - **Node.js ≥ 22** and [pnpm](https://pnpm.io)
-- An **Arbitrum One RPC endpoint**. The public one works and is rate-limited; pass your own with
-  `--rpc-url` (comma-separated for automatic failover)
+- An **RPC endpoint for the deployment you are acting on** — Arbitrum One by default, Arbitrum
+  Sepolia with `--chain arbitrum-sepolia-testnet`. The public ones work and are rate-limited; pass
+  your own with `--rpc-url` (comma-separated for automatic failover), or export
+  `KLEROS_RPC_URL_ARBITRUM_ONE` / `KLEROS_RPC_URL_ARBITRUM_SEPOLIA_TESTNET`. **The variable picks an
+  endpoint and never a deployment** ([ADR-0016](docs/adr/0016-the-environment-configures-transport-never-target.md))
 - The **private key** of the party creating the dispute, in a file this tool is pointed at
-- **ETH on Arbitrum One** in that account. It sends its own transactions and pays its own
-  arbitration fee; there is no relayer
+- **ETH on that deployment's chain** in that account. It sends its own transactions and pays its
+  own arbitration fee; there is no relayer
 
 ## Install
 
@@ -285,8 +289,10 @@ These are enforced in code, not left to the caller:
   `--max-cost-eth` is enforced locally the moment the quote arrives, before anything is simulated.
 - **Simulate first, always.** Every state-changing call is simulated, and nothing is broadcast
   without `--broadcast` ([ADR-0004](docs/adr/0004-broadcast-is-opt-in-no-human-gate.md)).
-- **One deployment served**, `arbitrum-one` (v2 Beta, chain 42161), selected by `--chain` and the
-  default. A slug this tool does not serve is refused before anything is contacted. The chain ID is
+- **Two deployments served** — `arbitrum-one` (v2 Beta, chain 42161), which is the default, and
+  `arbitrum-sepolia-testnet` (v2 testnet, chain 421614) — selected by `--chain`. A chain ID does not
+  identify a deployment; three answer 421614. A slug this tool does not serve is refused before
+  anything is contacted. The chain ID is
   asserted with a live `eth_chainId` call against that deployment's own expected value, and **no
   contract call is made before it** — resolving an address is local, using one on an unverified
   chain is the hazard ([ADR-0015](docs/adr/0015-a-deployment-is-not-a-chain.md)).

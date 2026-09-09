@@ -1,5 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { toHex } from "viem";
+import { DEFAULT_DEPLOYMENT, type Deployment } from "../deployments.js";
 
 /**
  * A one-file JSON-RPC endpoint, so the **write** path can be tested without a
@@ -25,12 +27,23 @@ export type RpcServer = {
   close: () => Promise<void>;
 };
 
-export async function startRpcServer(responses: Record<string, unknown> = {}): Promise<RpcServer> {
+/**
+ * `deployment` fixes what `eth_chainId` answers, and it is a parameter rather
+ * than a literal for one reason: viem refuses to sign when the wallet client's
+ * chain and the endpoint's disagree, so a hardcoded chain ID would make this
+ * double agree with `broadcast.ts`'s deployment only by coincidence — and the
+ * coincidence would hold on `arbitrum-one` and break on any other. An explicit
+ * `responses.eth_chainId` still wins, for the tests that want the disagreement.
+ */
+export async function startRpcServer(
+  responses: Record<string, unknown> = {},
+  deployment: Deployment = DEFAULT_DEPLOYMENT,
+): Promise<RpcServer> {
   const calls: { method: string; params: unknown[] }[] = [];
   const sent: `0x${string}`[] = [];
 
   const canned: Record<string, unknown> = {
-    eth_chainId: "0xa4b1",
+    eth_chainId: toHex(deployment.chainId),
     eth_getTransactionCount: "0x0",
     eth_maxPriorityFeePerGas: "0x0",
     eth_gasPrice: "0x5f5e100",

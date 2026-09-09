@@ -1,5 +1,5 @@
 import type { Chain } from "viem";
-import { arbitrum } from "viem/chains";
+import { arbitrum, arbitrumSepolia } from "viem/chains";
 import { err, type KlerosResult, ok } from "./result.js";
 
 /**
@@ -29,7 +29,7 @@ import { err, type KlerosResult, ok } from "./result.js";
  * description and the fingerprint test all read this table rather than repeating
  * it.
  */
-export const DEPLOYMENT_SLUGS = ["arbitrum-one"] as const;
+export const DEPLOYMENT_SLUGS = ["arbitrum-one", "arbitrum-sepolia-testnet"] as const;
 
 export type DeploymentSlug = (typeof DEPLOYMENT_SLUGS)[number];
 
@@ -42,7 +42,7 @@ export type Deployment = {
    * The contracts package's own deployment key. **Mapped here and nowhere
    * else** (ADR-0015); it is not a slug and never reaches output.
    */
-  packageKey: "mainnet";
+  packageKey: "mainnet" | "testnet";
   /**
    * The chain ID `eth_chainId` MUST equal — `spec/03 §7` step 3.
    *
@@ -75,9 +75,9 @@ export type Deployment = {
    * does. An ambient value that redirects where a transaction is sent is exactly
    * the invisible input this tool's posture exists to prevent.
    *
-   * Nothing reads it yet — honouring it lands with the second deployment, which
-   * is where a per-deployment endpoint first has a caller. It is derived here so
-   * that when it is read, the name is not invented a second time.
+   * Read by `parseRpcUrls` (`client.ts`), **below `--rpc-url` and above the
+   * default**: an explicit flag always wins, so an ambient value can never
+   * override what the invocation said.
    */
   rpcUrlVariable: string;
 };
@@ -96,6 +96,21 @@ export const DEPLOYMENTS: Readonly<Record<DeploymentSlug, Deployment>> = {
     chain: arbitrum,
     defaultRpcUrl: "https://arb1.arbitrum.io/rpc",
     rpcUrlVariable: rpcUrlVariable("arbitrum-one"),
+  },
+  "arbitrum-sepolia-testnet": {
+    slug: "arbitrum-sepolia-testnet",
+    name: "v2 testnet",
+    packageKey: "testnet",
+    chainId: 421614,
+    chain: arbitrumSepolia,
+    // The public endpoint, and **the deployment where the override matters
+    // most**: this one was observed silently omitting logs, returning 124
+    // events where an archive endpoint returned 125 (`.scratch` spec, [live]
+    // 2026-09-09). It does not reach the write plane, which reads logs only
+    // from a receipt and never calls `eth_getLogs` — but it is why the default
+    // is a default and not a recommendation.
+    defaultRpcUrl: "https://sepolia-rollup.arbitrum.io/rpc",
+    rpcUrlVariable: rpcUrlVariable("arbitrum-sepolia-testnet"),
   },
 };
 
@@ -131,17 +146,12 @@ const ARBITRUM_SEPOLIA_RETIRED_GUIDANCE =
  * would be a false diagnosis for a name that is real elsewhere.
  */
 const UNSERVED: Record<string, string> = {
+  // Both replacement slugs the guidance names now have somewhere to land:
+  // `arbitrum-sepolia-testnet` is served, and the devnet has its own sentence
+  // below. Its own tripwire entry — added so this tool's correction would not
+  // send a caller to a name that answers like a typo — was deleted when the
+  // deployment was registered, which is what that entry asked for.
   "arbitrum-sepolia": ARBITRUM_SEPOLIA_RETIRED_GUIDANCE,
-  // **The slug the retired-slug guidance above sends a caller to.** Without its
-  // own sentence it falls through to "Unsupported chain", which is the wording a
-  // typo gets — so an agent that follows this tool's own correction would land
-  // on what reads like a second mistake, with nothing to say the name is real.
-  // Delete this entry when the deployment is registered; `deployments.test.ts`
-  // lists it among the refused slugs and will fail until that happens.
-  "arbitrum-sepolia-testnet":
-    'Chain "arbitrum-sepolia-testnet" is a real Kleros v2 deployment and is read by ' +
-    "@kleros/agentkit, but this tool does not serve it: it has never signed against it, and the " +
-    "slug is refused rather than registered until it has.",
   "arbitrum-sepolia-devnet":
     'Chain "arbitrum-sepolia-devnet" is read by @kleros/agentkit but is not served here: its ' +
     "write surface genuinely differs — submitEvidence does not take the same arguments — and " +
@@ -186,10 +196,13 @@ export function resolveDeployment(slug: string | undefined): KlerosResult<Deploy
 /**
  * The served slugs as prose, with the default named. Used by the refusal and by
  * the `--chain` description, so the two cannot disagree about what is served.
+ *
+ * The singular phrasing this carried while `arbitrum-one` was the only slug —
+ * "which is the default" — was deleted rather than left unreachable: with two
+ * entries TypeScript narrows the length to a literal and rejects the comparison
+ * outright, so keeping it would mean widening a type to preserve a branch that
+ * cannot run. Restoring it is a two-line change if the table ever shrinks.
  */
 export function servedSlugs(): string {
-  const list = DEPLOYMENT_SLUGS.join(", ");
-  return DEPLOYMENT_SLUGS.length === 1
-    ? `${list}, which is the default`
-    : `${list}, and defaults to ${DEFAULT_DEPLOYMENT_SLUG}`;
+  return `${DEPLOYMENT_SLUGS.join(", ")}, and defaults to ${DEFAULT_DEPLOYMENT_SLUG}`;
 }

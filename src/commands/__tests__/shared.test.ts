@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_DEPLOYMENT, DEPLOYMENTS } from "../../core/deployments.js";
 import type { ErrorCode } from "../../core/result.js";
 import { err, ok } from "../../core/result.js";
 import { ctaFor, exitCodeFor, finish, prepareLocal } from "../shared.js";
@@ -324,14 +325,41 @@ describe("prepareLocal", () => {
     expect(result.data.account).toBeNull();
   });
 
-  it("defaults the endpoint rather than reading one from the environment", () => {
+  /**
+   * **This used to assert the opposite of what the tool now does**, and it did
+   * so by setting `ARBITRUM_RPC` — the *juror* CLI's variable, which this tool
+   * has never read. So it proved nothing either way.
+   *
+   * The rule it should have been pinning is `ADR-0016`'s: the environment
+   * configures **transport**, never **target**. The variable is read, and it is
+   * the selected deployment's own; nothing ambient reaches the endpoint that is
+   * not named per deployment, and nothing ambient selects a deployment at all.
+   *
+   * Both branches run with the variable explicitly removed and then explicitly
+   * set, rather than relying on the ambient environment — an operator who has
+   * followed `ADR-0016` and exported it must still be able to run this suite.
+   */
+  it("reads the selected deployment's own variable, and nothing else's", () => {
     const before = { ...process.env };
-    process.env.ARBITRUM_RPC = "https://example.invalid";
     try {
-      const result = prepareLocal({ requireSigner: false });
-      expect(result.success).toBe(true);
-      if (!result.success) return;
-      expect(result.data.rpcUrls).toEqual(["https://arb1.arbitrum.io/rpc"]);
+      delete process.env[DEFAULT_DEPLOYMENT.rpcUrlVariable];
+      process.env.ARBITRUM_RPC = "https://juror-cli.invalid";
+      process.env.KLEROS_RPC_URL = "https://ambient.invalid";
+      process.env[DEPLOYMENTS["arbitrum-sepolia-testnet"].rpcUrlVariable] =
+        "https://other-deployment.invalid";
+
+      const defaulted = prepareLocal({ requireSigner: false });
+      expect(defaulted.success).toBe(true);
+      if (!defaulted.success) return;
+      expect(defaulted.data.rpcUrls).toEqual([DEFAULT_DEPLOYMENT.defaultRpcUrl]);
+
+      process.env[DEFAULT_DEPLOYMENT.rpcUrlVariable] = "https://mine.invalid";
+      const overridden = prepareLocal({ requireSigner: false });
+      expect(overridden.success && overridden.data.rpcUrls).toEqual(["https://mine.invalid"]);
+
+      // And the flag still outranks it — the other half of the rule.
+      const explicit = prepareLocal({ requireSigner: false, rpcUrl: "https://flag.invalid" });
+      expect(explicit.success && explicit.data.rpcUrls).toEqual(["https://flag.invalid"]);
     } finally {
       process.env = before;
     }
