@@ -128,8 +128,8 @@ registry and dispute kits, with its own ABIs, which are **not** interchangeable 
 A chain may host several: chain 421614 carries the v2 testnet, the v2 devnet and the university
 deployment, so **a chain ID does not name a deployment**. Named by a slug at every machine boundary
 (`arbitrum-one`, `arbitrum-sepolia-testnet`) and by its prose name in documentation ("v2 Beta",
-"v2 testnet"). `--chain` will keep the sibling CLI's flag name and select one of these — **specified
-in `ADR-0015`, not yet built**; today `arbitrum-one` is the only deployment served.
+"v2 testnet"). `--chain` (alias `-c`) keeps the sibling CLI's flag name and selects one of these,
+defaulting to `arbitrum-one`, which is the only deployment served today.
 _Avoid_: network, environment, instance; *chain* as a synonym for it (a chain hosts deployments —
 the flag is named for the one and selects the other); *mainnet* (the contracts package's own key for
 Arbitrum One, confined to the deployment module — to an agent that also reads `@kleros/agentkit`,

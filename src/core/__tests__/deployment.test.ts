@@ -1,16 +1,13 @@
 import { getAddress, toEventSelector, toFunctionSelector } from "viem";
 import { describe, expect, it } from "vitest";
-import {
-  ARBITRUM_ONE_CHAIN_ID,
-  DISPUTE_RESOLVER,
-  DISPUTE_RESOLVER_ABI,
-  DISPUTE_RESOLVER_RULER,
-  DISPUTE_TEMPLATE_REGISTRY,
-  EVIDENCE_MODULE,
-  EVIDENCE_MODULE_ABI,
-  KLEROS_CORE,
-  KLEROS_CORE_ABI,
-} from "../deployment.js";
+import { contractsFor, packageChainId } from "../deployment.js";
+import { DEFAULT_DEPLOYMENT, DEPLOYMENT_SLUGS, DEPLOYMENTS } from "../deployments.js";
+
+/**
+ * One table per deployment. `arbitrum-one` is the only one served today; ticket
+ * 04 adds the second, and records the measured ABI difference between them.
+ */
+const contracts = contractsFor(DEFAULT_DEPLOYMENT);
 
 /**
  * The deployment fingerprint — `spec/05 §1.6`.
@@ -33,9 +30,9 @@ type AbiEntry = {
   readonly outputs?: readonly AbiParam[];
 };
 
-const CORE = KLEROS_CORE_ABI as readonly AbiEntry[];
-const RESOLVER = DISPUTE_RESOLVER_ABI as readonly AbiEntry[];
-const EVIDENCE = EVIDENCE_MODULE_ABI as readonly AbiEntry[];
+const CORE = contracts.klerosCore.abi as readonly AbiEntry[];
+const RESOLVER = contracts.disputeResolver.abi as readonly AbiEntry[];
+const EVIDENCE = contracts.evidenceModule.abi as readonly AbiEntry[];
 
 /**
  * Output *names* and order are part of the assertion on purpose: `read-preflight.ts`
@@ -177,25 +174,57 @@ describe("deployed-versus-master fingerprints", () => {
 
 describe("addresses have not moved", () => {
   it.each([
-    ["KlerosCore", KLEROS_CORE.address, "0x991d2df165670b9cac3B022f4B68D65b664222ea"],
-    ["DisputeResolver", DISPUTE_RESOLVER.address, "0xb5526D022962A1fFf6eD32C93e8b714c901F4323"],
-    ["EvidenceModule", EVIDENCE_MODULE.address, "0x48e052B4A6dC4F30e90930F1CeaAFd83b3981EB3"],
+    ["KlerosCore", contracts.klerosCore.address, "0x991d2df165670b9cac3B022f4B68D65b664222ea"],
+    [
+      "DisputeResolver",
+      contracts.disputeResolver.address,
+      "0xb5526D022962A1fFf6eD32C93e8b714c901F4323",
+    ],
+    [
+      "EvidenceModule",
+      contracts.evidenceModule.address,
+      "0x48e052B4A6dC4F30e90930F1CeaAFd83b3981EB3",
+    ],
     [
       "DisputeTemplateRegistry",
-      DISPUTE_TEMPLATE_REGISTRY.address,
+      contracts.disputeTemplateRegistry.address,
       "0x0cFBaCA5C72e7Ca5fFABE768E135654fB3F2a5A2",
     ],
     [
       "DisputeResolverRuler",
-      DISPUTE_RESOLVER_RULER.address,
+      contracts.disputeResolverRuler.address,
       "0xb3a5FdEAF461c42caCe148e978e6FBCa97bE6140",
     ],
   ])("%s", (_label, resolved, historical) => {
     expect(getAddress(resolved)).toBe(getAddress(historical));
   });
 
-  it("resolves the chain ID from the deployment, not a literal", () => {
-    expect(ARBITRUM_ONE_CHAIN_ID).toBe(42161);
+  it("pins arbitrum-one to chain 42161", () => {
+    expect(DEPLOYMENTS["arbitrum-one"].chainId).toBe(42161);
+  });
+
+  /**
+   * **The slug table and the contracts package check each other.**
+   *
+   * `deployments.ts` writes each chain ID down because it deliberately imports
+   * nothing from the package; the package records its own. Neither is the single
+   * source of truth, and that is the point: a divergence — an upstream re-key, a
+   * typo in the table — fails here rather than sending a transaction to an
+   * endpoint the assertion then waves through.
+   */
+  it.each(DEPLOYMENT_SLUGS)("%s: the table's chain ID is the package's", (slug) => {
+    const deployment = DEPLOYMENTS[slug];
+    expect(packageChainId(deployment)).toBe(deployment.chainId);
+  });
+
+  /**
+   * The formula, not a literal per deployment — matching `@kleros/agentkit`'s
+   * `rpcEnvVarName`, so one exported variable serves both tools.
+   */
+  it.each(DEPLOYMENT_SLUGS)("%s: names its RPC override variable by formula", (slug) => {
+    expect(DEPLOYMENTS[slug].rpcUrlVariable).toBe(
+      `KLEROS_RPC_URL_${slug.toUpperCase().replace(/-/g, "_")}`,
+    );
   });
 
   /**
@@ -205,8 +234,8 @@ describe("addresses have not moved", () => {
    * build here, before anything could be signed against it.
    */
   it("never resolves the write target to the governance override contract", () => {
-    expect(getAddress(DISPUTE_RESOLVER.address)).not.toBe(
-      getAddress(DISPUTE_RESOLVER_RULER.address),
+    expect(getAddress(contracts.disputeResolver.address)).not.toBe(
+      getAddress(contracts.disputeResolverRuler.address),
     );
   });
 });

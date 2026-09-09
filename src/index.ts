@@ -22,10 +22,9 @@ export type {
 export { simulateAndMaybeBroadcast } from "./core/broadcast.js";
 export type { MulticallEntry, Outcome, StartupFacts } from "./core/client.js";
 export {
-  assertArbitrumOne,
+  assertChain,
   checkDeployment,
   createKlerosClient,
-  DEFAULT_RPC_URL,
   EXPECTED_VERSIONS,
   multicall,
   parseRpcUrls,
@@ -39,17 +38,17 @@ export {
   LARGE_QUOTE_WEI,
   quoteWarnings,
 } from "./core/cost.js";
+export type { DeploymentContracts } from "./core/deployment.js";
+export { contractsFor, packageChainId } from "./core/deployment.js";
+export type { Deployment, DeploymentSlug } from "./core/deployments.js";
 export {
-  ARBITRUM_ONE_CHAIN_ID,
-  DISPUTE_RESOLVER,
-  DISPUTE_RESOLVER_ABI,
-  DISPUTE_RESOLVER_RULER,
-  DISPUTE_TEMPLATE_REGISTRY,
-  EVIDENCE_MODULE,
-  EVIDENCE_MODULE_ABI,
-  KLEROS_CORE,
-  KLEROS_CORE_ABI,
-} from "./core/deployment.js";
+  DEFAULT_DEPLOYMENT,
+  DEFAULT_DEPLOYMENT_SLUG,
+  DEPLOYMENT_SLUGS,
+  DEPLOYMENTS,
+  resolveDeployment,
+  servedSlugs,
+} from "./core/deployments.js";
 export type { EvidenceDocument, EvidencePayload } from "./core/evidence.js";
 export { buildEvidence, parseEvidenceDocument, serialiseEvidence } from "./core/evidence.js";
 export type { ExtraDataWords } from "./core/extra-data.js";

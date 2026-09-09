@@ -1,6 +1,14 @@
 import { z } from "incur";
 import type { PrivateKeyAccount, PublicClient } from "viem";
 import { createKlerosClient, parseRpcUrls, startup } from "../core/client.js";
+import type { DeploymentContracts } from "../core/deployment.js";
+import {
+  DEFAULT_DEPLOYMENT_SLUG,
+  DEPLOYMENTS,
+  type Deployment,
+  type DeploymentSlug,
+  resolveDeployment,
+} from "../core/deployments.js";
 import { type ErrorCode, type KlerosResult, ok } from "../core/result.js";
 import { loadSigner } from "../core/signer.js";
 
@@ -60,6 +68,10 @@ const EXIT_CODES: Record<ErrorCode, number> = {
   FILE_UNREADABLE: 1,
   FILE_EMPTY: 1,
   FILE_TOO_LARGE: 1,
+  // Refused at `spec/03 §7` step 1, before an endpoint is even constructed. It
+  // is validation in the same sense as a bad court ID, and deliberately not 2:
+  // nothing about the network was learned, because nothing was contacted.
+  CHAIN_NOT_SUPPORTED: 1,
   // 2 — chain, RPC or upload-service failure. Nothing was judged, so nothing can
   // be concluded. Neither upload code can mean money was spent: `upload-file`
   // never signs.
@@ -91,11 +103,33 @@ export type CtaBlock = {
 
 /** What a CTA can quote back, so the suggested command is the one to actually run. */
 export type CtaContext = {
+  /**
+   * The raw `--chain` value, resolved here rather than by the caller.
+   *
+   * **Every CTA carries `--chain`, and that is correctness rather than tidiness**
+   * (ADR-0015): a continuation command without it re-resolves to the default and
+   * would answer from a different deployment than the one that just refused.
+   */
+  chain?: string | undefined;
   court?: string | undefined;
   jurors?: string | undefined;
   kit?: string | undefined;
   dispute?: string | undefined;
 };
+
+/**
+ * The slug to write into a CTA and into an error message.
+ *
+ * `resolveDeployment` is pure, total and offline, so calling it a second time
+ * here cannot disagree with the call the core made and costs nothing. When it
+ * refuses, the failure **is** `CHAIN_NOT_SUPPORTED`, whose own message names
+ * what was asked for — so there is nothing to echo and the placeholder keeps a
+ * suggested command from carrying the bad value forward.
+ */
+function slugFor(chain: string | undefined): DeploymentSlug | undefined {
+  const resolved = resolveDeployment(chain);
+  return resolved.success ? resolved.data.slug : undefined;
+}
 
 /**
  * The next command, for an agent that has to self-correct without a human.
@@ -107,6 +141,7 @@ export type CtaContext = {
  * does not exist; every command named below is registered in `cli.ts`.
  */
 export function ctaFor(code: ErrorCode, context: CtaContext): CtaBlock | undefined {
+  const on = ` --chain ${slugFor(context.chain) ?? "<slug>"}`;
   const at = context.dispute ? ` --dispute ${context.dispute}` : "";
 
   switch (code) {
@@ -188,7 +223,9 @@ export function ctaFor(code: ErrorCode, context: CtaContext): CtaBlock | undefin
     case "EFFECTIVE_MISMATCH":
       return {
         description: "The dispute exists and is paid for. Inspect it before doing anything else.",
-        commands: [{ command: `status${at}`, description: "Show the dispute that was created" }],
+        commands: [
+          { command: `status${on}${at}`, description: "Show the dispute that was created" },
+        ],
       };
     default:
       return undefined;
@@ -219,7 +256,8 @@ function quoteCommand(context: CtaContext, refused?: "court" | "jurors" | "kit")
     name === refused || value === undefined ? blank : value;
 
   return (
-    `arbitration-cost --court ${word("court", context.court, "<id>")}` +
+    `arbitration-cost --chain ${slugFor(context.chain) ?? "<slug>"}` +
+    ` --court ${word("court", context.court, "<id>")}` +
     ` --jurors ${word("jurors", context.jurors, "<n>")}` +
     ` --kit ${word("kit", context.kit, "<id>")}`
   );
@@ -244,12 +282,16 @@ export function uploadSuccessCta(data: Record<string, unknown>): CtaBlock | unde
   return {
     description:
       "The file is pinned and nothing has been submitted. Evidence is a separate transaction, " +
-      "and it needs the core dispute ID.",
+      "and it needs the core dispute ID and the deployment the dispute is on.",
     commands: [
       {
         command:
-          `submit-evidence --dispute <id> --name "<short name>" --description @<file>` +
-          ` --file-uri ${fileURI}${withExtension}`,
+          // `--chain` is a placeholder rather than the default, and deliberately
+          // so: `upload-file` touches no chain (`spec/06 §1`), so it has no
+          // deployment to preserve and guessing one would be the exact silent
+          // redirection the rule exists to prevent.
+          `submit-evidence --chain <slug> --dispute <id> --name "<short name>"` +
+          ` --description @<file> --file-uri ${fileURI}${withExtension}`,
         description: "Submit evidence referencing this attachment",
       },
     ],
@@ -296,12 +338,51 @@ export function finish<T>(
       ? String((result.details as { hint: unknown }).hint)
       : null;
 
+  // The hint may be a fragment the endpoint supplied — `rpcError` appends the
+  // node's own words verbatim, and a node does not punctuate — so the sentence
+  // is closed here before the deployment is appended. Without this the two run
+  // together: "The endpoint said: fetch failed Deployment: arbitrum-one".
+  const withHint = hint ? `${result.message} ${hint}` : result.message;
+  const closed = /[.!?…]$/.test(withHint.trimEnd()) ? withHint : `${withHint}.`;
+
   return c.error({
     code: result.code,
-    message: hint ? `${result.message} ${hint}` : result.message,
+    message: `${closed}${deploymentSuffix(context.chain)}`,
     exitCode: exitCodeFor(result.code),
     ...(cta ? { cta } : {}),
   });
+}
+
+/**
+ * **Which deployment a failure came from, in the message.**
+ *
+ * A success payload carries `deployment` and `chainId` as fields. A failure
+ * cannot: incur's error envelope is closed to `{code, message}` and a `cta`, and
+ * **no output mode renders `details`** (ADR-0013) — so a fact the caller needs
+ * goes in the message or it does not reach them at all. An agent that has to
+ * decide whether to retry, and a human reading a refusal, both need to know
+ * which deployment answered before either can act on it.
+ *
+ * **An absent `chain` means the command has no deployment, not that it took the
+ * default.** `upload-file` touches no chain at all (`spec/03 §3.4`), and a
+ * refusal from it that claimed one would be a plain falsehood — the same silent
+ * redirection `uploadSuccessCta` refuses to commit. Every chain-taking command
+ * passes a value here because `--chain` carries a zod default, so the two cases
+ * cannot be confused at the CLI boundary; `finish` is not exported from
+ * `index.ts`, so that boundary is the only one there is.
+ *
+ * The chain ID reported is the selected deployment's **expected** one. Every
+ * failure after the assertion has that ID asserted; the two failures before it
+ * name the discrepancy themselves — `WRONG_CHAIN` reports what the endpoint
+ * actually said, and `CHAIN_NOT_SUPPORTED` has no deployment to report, which is
+ * why this appends nothing when the slug does not resolve either.
+ */
+function deploymentSuffix(chain: string | undefined): string {
+  if (chain === undefined) return "";
+
+  const resolved = resolveDeployment(chain);
+  if (!resolved.success) return "";
+  return ` Deployment: ${resolved.data.slug} (chain ${resolved.data.chainId}).`;
 }
 
 /* ------------------------------------------------------------------------- *
@@ -315,15 +396,47 @@ export function finish<T>(
  * `z` is imported from `incur`, never from `zod` — one zod instance.
  * ------------------------------------------------------------------------- */
 
+/**
+ * The two options every command that touches a chain takes. **Declared per
+ * command, never as a root option**: incur's global mechanism reaches handlers
+ * but is not merged into the per-command tool schemas an agent calls over MCP,
+ * so a root declaration would be invisible to exactly the caller this CLI is
+ * built for (verified against incur 0.4.26, `Mcp.ts`'s `buildToolSchema`).
+ *
+ * `alias: { chain: "c" }` is declared alongside `options` on each command in
+ * `cli.ts`; incur takes aliases there and not in the schema.
+ */
 export const chainOptions = {
+  /**
+   * **The gloss lives here and nowhere else.** Pairing each slug with the name
+   * humans use for it is what lets an agent map "v2 Beta" in prose onto a flag
+   * value, and repeating it in messages, CTAs or other help strings would be
+   * four places for it to drift (ADR-0015).
+   */
+  chain: z
+    .string()
+    .default(DEFAULT_DEPLOYMENT_SLUG)
+    .describe(
+      `Deployment to act on: ${glossedSlugs()}. A deployment is one address set of the Kleros ` +
+        "v2 contracts, and a chain may host several — the flag is named for the chain to match " +
+        "the kleros CLI, and selects a deployment. It is never read from the environment.",
+    ),
   "rpc-url": z
     .string()
     .optional()
     .describe(
-      "Arbitrum One RPC URL, comma-separated for automatic fallback. Defaults to the public " +
-        "endpoint, which is rate-limited. The chain assertion runs against whatever this points at.",
+      "RPC URL for the selected deployment's chain, comma-separated for automatic fallback. " +
+        "Defaults to that deployment's public endpoint, which is rate-limited. The chain " +
+        "assertion runs against whatever this points at.",
     ),
 };
+
+/** `arbitrum-one (v2 Beta)`, joined. The one place a slug is paired with its prose name. */
+function glossedSlugs(): string {
+  return Object.values(DEPLOYMENTS)
+    .map((deployment) => `${deployment.slug} (${deployment.name})`)
+    .join(", ");
+}
 
 export const writeOptions = {
   "key-file": z
@@ -375,8 +488,9 @@ export const extraDataOptions = {
     .string()
     .default("1")
     .describe(
-      "Dispute kit ID. 1 is Classic, the kit every court on Arbitrum One supports. A few courts " +
-        "support others as well, and kit support is re-read on every invocation rather than assumed.",
+      "Dispute kit ID. 1 is Classic, the kit every court on arbitrum-one supports. A few courts " +
+        "support others as well, and kit support is re-read on every invocation for the selected " +
+        "deployment rather than assumed.",
     ),
 };
 
@@ -396,6 +510,8 @@ export const RECEIPT_TIMEOUT_MS = 120_000;
  * ------------------------------------------------------------------------- */
 
 export type PrepareOptions = {
+  /** The raw `--chain` value. Absent means the default (`spec/03 §7` step 1). */
+  chain?: string | undefined;
   rpcUrl?: string | undefined;
   keyFile?: string | undefined;
   /** Read commands work without a key; the two write commands cannot (`spec/03 §6`). */
@@ -403,46 +519,59 @@ export type PrepareOptions = {
 };
 
 export type LocallyPrepared = {
+  deployment: Deployment;
   rpcUrls: string[];
   account: PrivateKeyAccount | null;
 };
 
 /**
- * Everything resolvable with no network at all: the endpoint list and the key.
+ * Everything resolvable with no network at all: the deployment, the endpoint
+ * list and the key.
  *
- * Split from `prepare` so a key that is missing or world-readable is refused
- * before a single RPC round trip, and so the gate is visible as one boolean
- * rather than buried in each command.
+ * Split from `prepare` so an unserved slug and a key that is missing or
+ * world-readable are both refused before a single RPC round trip, and so the
+ * signer gate is visible as one boolean rather than buried in each command.
+ *
+ * **The slug is resolved first**, because a caller who named a deployment this
+ * tool does not serve should be told that and not that their key file is
+ * unreadable — and because `spec/03 §7` step 1 is where it belongs.
  */
 export function prepareLocal(options: PrepareOptions): KlerosResult<LocallyPrepared> {
+  const deployment = resolveDeployment(options.chain);
+  if (!deployment.success) return deployment;
+
   // There is deliberately no environment variable for the endpoint: `spec/03 §3`
   // fixes the option set, and the one thing this CLI reads from outside the
   // command line is the key file, whose path is itself an option.
-  const rpcUrls = parseRpcUrls(options.rpcUrl);
+  const rpcUrls = parseRpcUrls(options.rpcUrl, deployment.data);
 
   const signer = loadSigner({ path: options.keyFile });
   if (!signer.success) {
     if (options.requireSigner) return signer;
-    return ok({ rpcUrls, account: null });
+    return ok({ deployment: deployment.data, rpcUrls, account: null });
   }
 
-  return ok({ rpcUrls, account: signer.data });
+  return ok({ deployment: deployment.data, rpcUrls, account: signer.data });
 }
 
 export type Prepared = LocallyPrepared & {
   client: PublicClient;
-  /** Version mismatches from `spec/03 §7` step 4. Never a failure; always echoed. */
+  /** The deployment's contracts, resolved once by `startup` and threaded on. */
+  contracts: DeploymentContracts;
+  /** The chain ID that was asserted — echoed by every success envelope. */
+  chainId: number;
+  /** Version mismatches from `spec/03 §7` step 5. Never a failure; always echoed. */
   warnings: string[];
 };
 
 /**
  * `prepareLocal`, then the whole of `spec/03 §7` in the order that section
- * fixes: `eth_chainId == 42161` **before** any deployment registry lookup, then
- * the deployment's own view of itself, then versions.
+ * fixes: slug, then addresses, then `eth_chainId` against **that deployment's**
+ * expected chain ID, then the deployment's own view of itself, then versions.
  *
- * Command-specific pre-flight is step 5 and is the caller's next move. Nothing
- * in `read-preflight.ts` may run before this returns: those are registry-scoped
- * reads, and on an unverified chain they read the wrong core.
+ * Command-specific pre-flight is step 6 and is the caller's next move. Nothing
+ * in `read-preflight.ts` may run before this returns: those are contract calls,
+ * and on an unverified chain they read the wrong core.
  *
  * The overload is what removes the dead `if (!account)` branch every write
  * command would otherwise carry: `requireSigner: true` has already refused, so
@@ -456,10 +585,29 @@ export async function prepare(options: PrepareOptions): Promise<KlerosResult<Pre
   const local = prepareLocal(options);
   if (!local.success) return local;
 
-  const client = createKlerosClient(local.data.rpcUrls);
+  const client = createKlerosClient(local.data.rpcUrls, local.data.deployment);
 
-  const facts = await startup(client);
+  const facts = await startup(client, local.data.deployment);
   if (!facts.success) return facts;
 
-  return ok({ ...local.data, client, warnings: facts.data.warnings });
+  return ok({
+    ...local.data,
+    client,
+    contracts: facts.data.contracts,
+    chainId: facts.data.chainId,
+    warnings: facts.data.warnings,
+  });
+}
+
+/**
+ * The two fields every envelope carries, success or failure — the resolved
+ * deployment and the chain ID that was asserted, never the ones requested. The
+ * same rule that already governs the effective court, juror count and kit
+ * (`spec/02 §1.2`).
+ */
+export function deploymentEcho(prepared: Prepared): {
+  deployment: DeploymentSlug;
+  chainId: number;
+} {
+  return { deployment: prepared.deployment.slug, chainId: prepared.chainId };
 }

@@ -25,9 +25,10 @@ are written; `upload-file` was added out of build order on maintainer instructio
 against the live endpoint**. Nothing published to npm, and **no transaction broadcast on Arbitrum
 One**. Next is **v2 testnet support**, specced and ticketed in `.scratch/testnet-support/`: it
 precedes the acceptance test (step 14), which moves from a pinned fork to the live testnet and whose
-`pnpm test:acceptance` still points at a file that does not exist. Tickets 01 and 02 are done — the
-deployment model (`ADR-0015`), and the evidence identifier defect, which was a **Beta** defect the
-testnet exposed, not testnet scope (`ADR-0014`). Ticket 03 is next and unblocked.
+`pnpm test:acceptance` still points at a file that does not exist. Tickets 01, 02 and 03 are done — the
+deployment model (`ADR-0015`), the evidence identifier defect, which was a **Beta** defect the
+testnet exposed, not testnet scope (`ADR-0014`), and `--chain` with v2 Beta the only value served.
+Ticket 04 is next and unblocked.
 Build order: `HANDOFF §10` — where the skill is step 12 and the README step 13, not the reverse.
 
 ```
@@ -88,8 +89,11 @@ wins and is named.
   renders `details`**, so any other key on it is invisible to callers. `ADR-0013`
 - **A chain ID does not name a deployment** — at least three share 421614. What is pinned is a
   deployment: the `eth_chainId` assertion is a runtime check against *that deployment's* expected
-  ID, never a viem `chain:` field, and **no contract call may precede it**. One is served today,
-  `arbitrum-one`; there is no `--chain` yet. `ADR-0015`, `spec/03 §7`
+  ID, never a viem `chain:` field, and **no contract call may precede it**. `--chain` (alias `-c`)
+  selects one, defaults to `arbitrum-one` and is the **only** thing that can — never the
+  environment, never a config file. It is declared **per command**, because incur's globals never
+  reach the MCP tool schemas. `arbitrum-one` is the only slug served today; an unserved one is
+  `CHAIN_NOT_SUPPORTED`, refused before anything is contacted. `ADR-0015`, `spec/03 §7`
 - **Discovery happens upstream**, in `@kleros/agentkit`. Reads here are limited to what is needed
   to **refuse a bad write** — or, in exactly one case, to decide **what** is signed, where the
   alternative is a write that cannot be read back. A read that does neither does not belong here.

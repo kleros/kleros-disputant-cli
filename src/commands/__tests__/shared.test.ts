@@ -50,6 +50,7 @@ const ALL_CODES = [
   "UPLOAD_MISMATCH",
   "NUMBER_INVALID",
   "DISPUTE_NOT_ADDRESSABLE",
+  "CHAIN_NOT_SUPPORTED",
 ] as const satisfies readonly ErrorCode[];
 
 /** The other direction: every listed code is real, and none is missing. */
@@ -137,14 +138,14 @@ describe("CTA blocks", () => {
   it("keeps the words that were fine and blanks the one that was refused", () => {
     expect(
       ctaFor("COURT_OUT_OF_RANGE", { court: "99", jurors: "7", kit: "1" })?.commands[0]?.command,
-    ).toBe("arbitration-cost --court <id> --jurors 7 --kit 1");
+    ).toBe("arbitration-cost --chain arbitrum-one --court <id> --jurors 7 --kit 1");
     expect(
       ctaFor("JURORS_INVALID", { court: "1", jurors: "0", kit: "1" })?.commands[0]?.command,
-    ).toBe("arbitration-cost --court 1 --jurors <n> --kit 1");
+    ).toBe("arbitration-cost --chain arbitrum-one --court 1 --jurors <n> --kit 1");
     expect(
       ctaFor("DISPUTE_KIT_NOT_SUPPORTED", { court: "1", jurors: "3", kit: "2" })?.commands[0]
         ?.command,
-    ).toBe("arbitration-cost --court 1 --jurors 3 --kit <id>");
+    ).toBe("arbitration-cost --chain arbitrum-one --court 1 --jurors 3 --kit <id>");
   });
 
   /**
@@ -178,7 +179,7 @@ describe("CTA blocks", () => {
   it("quotes what it can when the refusal was not about any of the three words", () => {
     expect(
       ctaFor("COST_CEILING_EXCEEDED", { court: "1", jurors: "3", kit: "1" })?.commands[0]?.command,
-    ).toBe("arbitration-cost --court 1 --jurors 3 --kit 1");
+    ).toBe("arbitration-cost --chain arbitrum-one --court 1 --jurors 3 --kit 1");
   });
 
   it("offers a key-less command when the key is what failed", () => {
@@ -228,9 +229,69 @@ describe("finish", () => {
         hint: "Use the core dispute ID.",
         coreDisputeID: "999999",
       }),
+      { chain: "arbitrum-one" },
     );
-    expect(seen.error?.message).toBe("No such dispute. Use the core dispute ID.");
+    expect(seen.error?.message).toBe(
+      "No such dispute. Use the core dispute ID. Deployment: arbitrum-one (chain 42161).",
+    );
     expect(JSON.stringify(seen.error)).not.toContain("999999");
+  });
+
+  /**
+   * **A failure envelope has nowhere else to say which deployment answered.**
+   * incur's error envelope is closed to `{code, message}` and a `cta`, and no
+   * output mode renders `details` (ADR-0013) — so the fact goes in the message
+   * or it does not reach the caller at all (`spec/03 §3.1`).
+   */
+  it("names the deployment and the chain ID on a failure, where no field can carry them", () => {
+    const { seen, c } = context();
+    finish(c as never, err("DISPUTE_NOT_FOUND", "No such dispute."), { chain: "arbitrum-one" });
+    expect(seen.error?.message).toBe("No such dispute. Deployment: arbitrum-one (chain 42161).");
+  });
+
+  /**
+   * `rpcError` appends the node's own words verbatim, and a node does not
+   * punctuate. Without closing the sentence the two run together as
+   * "fetch failed Deployment: arbitrum-one".
+   */
+  it("closes an unpunctuated hint before appending the deployment", () => {
+    const { seen, c } = context();
+    finish(
+      c as never,
+      err("RPC_ERROR", "Could not read the chain ID.", {
+        hint: "The endpoint said: fetch failed",
+      }),
+      { chain: "arbitrum-one" },
+    );
+    expect(seen.error?.message).toBe(
+      "Could not read the chain ID. The endpoint said: fetch failed. " +
+        "Deployment: arbitrum-one (chain 42161).",
+    );
+  });
+
+  /**
+   * **`upload-file` has no deployment, and a refusal from it must not claim
+   * one.** It touches no chain at all (`spec/03 §3.4`), so an absent `chain`
+   * here means "this command has no deployment" and never "the default applied"
+   * — every chain-taking command passes a value, because `--chain` carries a zod
+   * default. Appending one would be the same silent redirection
+   * `uploadSuccessCta` refuses to commit.
+   */
+  it("claims no deployment for a command that has none", () => {
+    const { seen, c } = context();
+    finish(c as never, err("FILE_UNREADABLE", "Could not read the file."), {});
+    expect(seen.error?.message).toBe("Could not read the file.");
+  });
+
+  /**
+   * The one failure with no deployment to name. `CHAIN_NOT_SUPPORTED`'s own
+   * message already says what was asked for, and appending a resolved slug
+   * would name one the caller did not choose.
+   */
+  it("appends nothing when the slug did not resolve", () => {
+    const { seen, c } = context();
+    finish(c as never, err("CHAIN_NOT_SUPPORTED", "Unsupported chain."), { chain: "nonsense" });
+    expect(seen.error?.message).toBe("Unsupported chain.");
   });
 
   it("carries the exit code and the CTA for the code", () => {
@@ -291,7 +352,9 @@ describe("the balance CTA follows the path, not the code", () => {
   it("offers the fee quote only where a fee is actually paid", () => {
     const paying = ctaFor("INSUFFICIENT_BALANCE", { court: "1", jurors: "3", kit: "1" });
 
-    expect(paying?.commands[0]?.command).toBe("arbitration-cost --court 1 --jurors 3 --kit 1");
+    expect(paying?.commands[0]?.command).toBe(
+      "arbitration-cost --chain arbitrum-one --court 1 --jurors 3 --kit 1",
+    );
     expect(paying?.description).toContain("arbitration fee");
   });
 

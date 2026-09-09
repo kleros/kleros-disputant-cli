@@ -3,13 +3,12 @@ import { BaseError, ContractFunctionRevertedError, parseEther, parseTransaction 
 import { privateKeyToAccount } from "viem/accounts";
 import { afterEach, describe, expect, it } from "vitest";
 import { simulateAndMaybeBroadcast, type WriteCall } from "../broadcast.js";
-import {
-  DISPUTE_RESOLVER,
-  DISPUTE_RESOLVER_ABI,
-  EVIDENCE_MODULE,
-  EVIDENCE_MODULE_ABI,
-} from "../deployment.js";
+import { contractsFor } from "../deployment.js";
+import { DEFAULT_DEPLOYMENT } from "../deployments.js";
 import { type RpcServer, startRpcServer } from "./rpc-server.js";
+
+/** The one deployment served today; ticket 04 makes the double take one. */
+const contracts = contractsFor(DEFAULT_DEPLOYMENT);
 
 /**
  * `spec/04` — the transaction path, and the three changes `§2` requires because
@@ -149,12 +148,16 @@ afterEach(async () => {
 
 const params = (over: Record<string, unknown> = {}) => ({
   account,
-  target: { address: DISPUTE_RESOLVER.address, abi: DISPUTE_RESOLVER_ABI as never },
+  target: {
+    address: contracts.disputeResolver.address,
+    abi: contracts.disputeResolver.abi as never,
+  },
   call: CREATE,
   broadcast: false,
   timeoutMs: 1_000,
   balanceWei: parseEther("1"),
   rpcUrls: ["http://127.0.0.1:1"],
+  deployment: DEFAULT_DEPLOYMENT,
   ...over,
 });
 
@@ -219,7 +222,7 @@ describe("value reaches all three call sites", () => {
 
     const tx = parseTransaction(server.sent[0] as Hex);
     expect(tx.value).toBe(ARBITRATION_COST);
-    expect(tx.to?.toLowerCase()).toBe(DISPUTE_RESOLVER.address.toLowerCase());
+    expect(tx.to?.toLowerCase()).toBe(contracts.disputeResolver.address.toLowerCase());
     expect(tx.chainId).toBe(42161);
     expect(tx.gas).toBe(1_050_000n);
     // Tips are ignored on Arbitrum; zero states that plainly. RLP encodes zero
@@ -237,7 +240,10 @@ describe("value reaches all three call sites", () => {
       params({
         client,
         call: SUBMIT,
-        target: { address: EVIDENCE_MODULE.address, abi: EVIDENCE_MODULE_ABI as never },
+        target: {
+          address: contracts.evidenceModule.address,
+          abi: contracts.evidenceModule.abi as never,
+        },
         broadcast: true,
         rpcUrls: [server.url],
       }) as never,
@@ -246,7 +252,7 @@ describe("value reaches all three call sites", () => {
     expect(seen.simulate?.value).toBeUndefined();
     const tx = parseTransaction(server.sent[0] as Hex);
     expect(tx.value ?? 0n).toBe(0n);
-    expect(tx.to?.toLowerCase()).toBe(EVIDENCE_MODULE.address.toLowerCase());
+    expect(tx.to?.toLowerCase()).toBe(contracts.evidenceModule.address.toLowerCase());
   });
 });
 
@@ -344,7 +350,7 @@ describe("a reverting simulation", () => {
     const { client } = fakePublicClient({
       simulate: () => {
         throw new ContractFunctionRevertedError({
-          abi: DISPUTE_RESOLVER_ABI as never,
+          abi: contracts.disputeResolver.abi as never,
           data: "0x38cd83c4",
           functionName: "createDisputeForTemplate",
         });

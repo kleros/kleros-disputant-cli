@@ -1,16 +1,24 @@
 import {
-  deployments,
   getAddress as getDeployedAddress,
   mainnetViem,
+  deployments as packageDeployments,
 } from "@kleros/kleros-v2-contracts/cjs/deployments";
-import type { Address } from "viem";
+import type { Deployment } from "./deployments.js";
 
 /**
- * The deployed surface on Arbitrum One, **imported** from
+ * A deployment's addresses and ABIs, **imported** from
  * `@kleros/kleros-v2-contracts` rather than hand-copied out of `spec/01 §1`
- * (ADR-0006).
+ * (ADR-0006). Step 2 of `spec/03 §7`: local, offline, and never a network call.
  *
- * Three mechanical facts govern how it is reached (`spec/01 §1.1`):
+ * **This is a function of a deployment, not a set of module-level constants.**
+ * It used to resolve one address set at module load, which hardwired the tool to
+ * Arbitrum One in roughly forty places. `deployments.ts` owns the slug table and
+ * decides *which* deployment; this module answers *what it is made of*. A
+ * failure here is still a load-time failure rather than a `KlerosResult` — it
+ * means the package stopped covering that deployment, which is a broken build
+ * and not a refusable operator input.
+ *
+ * Three mechanical facts govern how the package is reached (`spec/01 §1.1`):
  *
  * - **Only `./cjs/deployments` can be imported.** The package root and
  *   `./esm/deployments` both throw `ReferenceError: exports is not defined in ES
@@ -25,70 +33,128 @@ import type { Address } from "viem";
  *   `getAddress(config, chainId)`, aliased on import so it cannot be confused with
  *   viem's checksumming `getAddress`.
  *
- * These constants resolve at module load. A failure here is a load failure, not a
- * `KlerosResult` — it means the package stopped covering 42161, and that is a
- * broken build rather than a refusable operator input. `deployment.test.ts` is what
- * keeps the import honest: it pins the ABI entries and addresses this tool binds
- * to, so an upstream regeneration from `master` fails the build rather than a
- * transaction.
+ * `deployment.test.ts` is what keeps the import honest: it pins the ABI entries
+ * and addresses this tool binds to, so an upstream regeneration from `master`
+ * fails the build rather than a transaction.
  */
-const DEPLOYMENT = "mainnet" as const;
-
-/** 42161, read from the deployment rather than written down. `spec/03 §7`. */
-export const ARBITRUM_ONE_CHAIN_ID = deployments[DEPLOYMENT].chainId;
-
-/** Read only: arbitration cost, court and kit configuration, dispute existence. */
-export const KLEROS_CORE = {
-  address: getDeployedAddress(mainnetViem.klerosCoreConfig, ARBITRUM_ONE_CHAIN_ID),
-} as const satisfies { address: Address };
 
 /**
- * The write target for dispute creation. An EOA **cannot** call
- * `KlerosCore.createDispute` — the deployed core enforces `arbitrableWhitelist`
- * unconditionally — so every dispute goes through this generic arbitrable.
+ * The ABI namespace per deployment key. **The two namespaces are not
+ * interchangeable** — the arbitrator's ABIs genuinely differ between deployments
+ * — so they are bound per deployment rather than shared, and the fingerprint
+ * test records the difference.
  */
-export const DISPUTE_RESOLVER = {
-  address: getDeployedAddress(mainnetViem.disputeResolverConfig, ARBITRUM_ONE_CHAIN_ID),
-} as const satisfies { address: Address };
+const ABIS = {
+  mainnet: {
+    klerosCore: mainnetViem.klerosCoreAbi,
+    disputeResolver: mainnetViem.disputeResolverAbi,
+    evidenceModule: mainnetViem.evidenceModuleAbi,
+  },
+} as const;
 
-/** The write target for evidence. Non-payable, no access control, no period gate. */
-export const EVIDENCE_MODULE = {
-  address: getDeployedAddress(mainnetViem.evidenceModuleConfig, ARBITRUM_ONE_CHAIN_ID),
-} as const satisfies { address: Address };
+/** The `*Config` records, which is where the chain-keyed address maps live. */
+const CONFIGS = {
+  mainnet: {
+    klerosCore: mainnetViem.klerosCoreConfig,
+    disputeResolver: mainnetViem.disputeResolverConfig,
+    evidenceModule: mainnetViem.evidenceModuleConfig,
+    disputeTemplateRegistry: mainnetViem.disputeTemplateRegistryConfig,
+    disputeResolverRuler: mainnetViem.disputeResolverRulerConfig,
+  },
+} as const;
 
 /**
- * Written to indirectly, by `createDisputeForTemplate`. Held here only so startup
- * can assert `DisputeResolver.templateRegistry()` agrees with it rather than
- * assuming the registry entries are mutually consistent. `spec/01 §1`, `spec/03 §7`.
+ * The chain ID the **contracts package** records for a deployment.
+ *
+ * Read here rather than in `deployments.ts`, which deliberately imports nothing
+ * from the package. `deployment.test.ts` asserts the two agree, so the slug
+ * table and the package check each other instead of one silently drifting.
  */
-export const DISPUTE_TEMPLATE_REGISTRY = {
-  address: getDeployedAddress(mainnetViem.disputeTemplateRegistryConfig, ARBITRUM_ONE_CHAIN_ID),
-} as const satisfies { address: Address };
+export function packageChainId(deployment: Deployment): number {
+  return packageDeployments[deployment.packageKey].chainId;
+}
 
-export const KLEROS_CORE_ABI = mainnetViem.klerosCoreAbi;
-export const DISPUTE_RESOLVER_ABI = mainnetViem.disputeResolverAbi;
-export const EVIDENCE_MODULE_ABI = mainnetViem.evidenceModuleAbi;
+export type DeploymentContracts = ReturnType<typeof resolveContracts>;
+
+function resolveContracts(deployment: Deployment) {
+  const abis = ABIS[deployment.packageKey];
+  const configs = CONFIGS[deployment.packageKey];
+  const at = (config: (typeof configs)[keyof typeof configs]) =>
+    getDeployedAddress(config, deployment.chainId);
+
+  return {
+    deployment,
+
+    /** Read only: arbitration cost, court and kit configuration, dispute existence. */
+    klerosCore: { address: at(configs.klerosCore), abi: abis.klerosCore },
+
+    /**
+     * The write target for dispute creation. An EOA **cannot** call
+     * `KlerosCore.createDispute` — the deployed core enforces
+     * `arbitrableWhitelist` unconditionally on Arbitrum One — so every dispute
+     * goes through this generic arbitrable. The whitelist is how that constraint
+     * was discovered rather than what licenses the routing: it is a v2 Beta
+     * property and is measurably absent elsewhere (`CONTEXT.md`, ADR-0015).
+     */
+    disputeResolver: { address: at(configs.disputeResolver), abi: abis.disputeResolver },
+
+    /** The write target for evidence. Non-payable, no access control, no period gate. */
+    evidenceModule: { address: at(configs.evidenceModule), abi: abis.evidenceModule },
+
+    /**
+     * Written to indirectly, by `createDisputeForTemplate`. Held here only so
+     * startup can assert `DisputeResolver.templateRegistry()` agrees with it
+     * rather than assuming the registry entries are mutually consistent.
+     * `spec/01 §1`, `spec/03 §7`.
+     */
+    disputeTemplateRegistry: { address: at(configs.disputeTemplateRegistry) },
+
+    /**
+     * `DisputeResolverRuler`, the governance override tool.
+     *
+     * **There is no runtime refusal, and that is the decision.** `preflight.ts`
+     * used to compare this against the resolved dispute kit, and a ruler can
+     * never be one: KlerosCore's five registered kits are the NULL kit plus four
+     * `DisputeKit*` contracts **[live]**, so the check could not fire. It was
+     * deleted rather than relocated.
+     *
+     * **The pinned address is the control.** The write target is resolved from
+     * the contracts package and its address is asserted in `deployment.test.ts`,
+     * which also asserts that it is not this one. A ruler can therefore only
+     * become the write target through an upstream change that fails the build
+     * first — a build-time guarantee, which is stronger than a runtime check
+     * against a value the same source supplied. `spec/01 §1`,
+     * `spec/appendix-a §4.5`.
+     *
+     * `KlerosCoreRuler` is deliberately absent: a developer tool for arbitrable
+     * developers, with no bearing on this CLI.
+     */
+    disputeResolverRuler: {
+      address: at(configs.disputeResolverRuler),
+      name: "DisputeResolverRuler",
+    },
+  } as const;
+}
 
 /**
- * `DisputeResolverRuler`, the governance override tool.
+ * Memoised per slug. Resolution is pure and cheap, but every command layer would
+ * otherwise call it several times per invocation and each call walks the
+ * package's chain-keyed maps — and a single object makes an identity comparison
+ * in a test mean what it looks like.
  *
- * **There is no runtime refusal, and that is the decision.** `preflight.ts` used
- * to compare this against the resolved dispute kit, and a ruler can never be one:
- * KlerosCore's five registered kits are the NULL kit plus four `DisputeKit*`
- * contracts **[live]**, so the check could not fire. It was deleted rather than
- * relocated.
- *
- * **The pinned address is the control.** The write target is resolved from the
- * contracts package and its address is asserted in `deployment.test.ts`, which
- * also asserts that it is not this one. A ruler can therefore only become the
- * write target through an upstream change that fails the build first — a
- * build-time guarantee, which is stronger than a runtime check against a value
- * the same source supplied. `spec/01 §1`, `spec/appendix-a §4.5`.
- *
- * `KlerosCoreRuler` is deliberately absent: a developer tool for arbitrable
- * developers, with no bearing on this CLI.
+ * **The slug is the key because a slug identifies a deployment** — every
+ * `Deployment` comes from `DEPLOYMENTS`, and `resolveDeployment` is the only way
+ * to get one. A hand-built record reusing a served slug with different fields
+ * would read the cached contracts rather than its own; construct one only where
+ * nothing resolves its addresses, as `client.test.ts` does.
  */
-export const DISPUTE_RESOLVER_RULER = {
-  address: getDeployedAddress(mainnetViem.disputeResolverRulerConfig, ARBITRUM_ONE_CHAIN_ID),
-  name: "DisputeResolverRuler",
-} as const satisfies { address: Address; name: string };
+const CACHE = new Map<string, DeploymentContracts>();
+
+export function contractsFor(deployment: Deployment): DeploymentContracts {
+  const cached = CACHE.get(deployment.slug);
+  if (cached !== undefined) return cached;
+
+  const resolved = resolveContracts(deployment);
+  CACHE.set(deployment.slug, resolved);
+  return resolved;
+}

@@ -35,9 +35,9 @@ const pkg = require("../package.json") as { version: string };
 
 const cli = Cli.create("kleros-disputant", {
   description:
-    "Create Kleros v2 disputes and submit evidence on Arbitrum One. Files a case that has " +
-    "already been built: the court, the ruling options and the evidence text are always inputs. " +
-    "Nothing is sent without --broadcast.",
+    "Create Kleros v2 disputes and submit evidence. Files a case that has already been built: " +
+    "the court, the ruling options and the evidence text are always inputs. Nothing is sent " +
+    "without --broadcast, and --chain selects the deployment it is sent to.",
   version: pkg.version,
   format: "json",
   // `skills add` installs the skills incur generates from these command
@@ -65,6 +65,11 @@ const cli = Cli.create("kleros-disputant", {
       "create-dispute, because KlerosCore quotes a price for a court that does not exist rather " +
       "than refusing.",
     options: z.object({ ...chainOptions, ...extraDataOptions }),
+    // incur takes aliases here, not in the zod schema, and only per command:
+    // its global option mechanism is not merged into the MCP tool schemas an
+    // agent calls, so a root `--chain` would be invisible to the primary
+    // consumer (verified against incur 0.4.26).
+    alias: { chain: "c" },
     examples: [
       {
         description: "Price three jurors in the General Court",
@@ -77,12 +82,14 @@ const cli = Cli.create("kleros-disputant", {
     ],
     async run(c) {
       const result = await runArbitrationCost({
+        chain: c.options.chain,
         rpcUrl: c.options["rpc-url"],
         court: c.options.court,
         jurors: c.options.jurors,
         kit: c.options.kit,
       });
       return finish(c, result, {
+        chain: c.options.chain,
         court: c.options.court,
         jurors: c.options.jurors,
         kit: c.options.kit,
@@ -100,10 +107,15 @@ const cli = Cli.create("kleros-disputant", {
         .string()
         .describe("The core dispute ID — the one Kleros Court shows for the case."),
     }),
+    alias: { chain: "c" },
     examples: [{ description: "Check where a dispute stands", options: { dispute: "215" } }],
     async run(c) {
-      const result = await runStatus({ rpcUrl: c.options["rpc-url"], dispute: c.options.dispute });
-      return finish(c, result, { dispute: c.options.dispute });
+      const result = await runStatus({
+        chain: c.options.chain,
+        rpcUrl: c.options["rpc-url"],
+        dispute: c.options.dispute,
+      });
+      return finish(c, result, { chain: c.options.chain, dispute: c.options.dispute });
     },
   })
   .command("create-dispute", {
@@ -131,6 +143,7 @@ const cli = Cli.create("kleros-disputant", {
             "arrives, before anything is simulated or sent.",
         ),
     }),
+    alias: { chain: "c" },
     examples: [
       {
         description: "Check what would happen, sending nothing",
@@ -155,6 +168,7 @@ const cli = Cli.create("kleros-disputant", {
     ],
     async run(c) {
       const result = await runCreateDispute({
+        chain: c.options.chain,
         rpcUrl: c.options["rpc-url"],
         keyFile: c.options["key-file"],
         requireSigner: true,
@@ -167,6 +181,7 @@ const cli = Cli.create("kleros-disputant", {
         maxFeeGwei: c.options["max-fee-gwei"],
       });
       return finish(c, result, {
+        chain: c.options.chain,
         court: c.options.court,
         jurors: c.options.jurors,
         kit: c.options.kit,
@@ -189,7 +204,7 @@ const cli = Cli.create("kleros-disputant", {
           "The core dispute ID — the one Kleros Court shows for the case. Two IDs are refused, " +
             "because the submission would succeed and then be unreachable: one no dispute uses, " +
             "and one whose dispute a different arbitrable contract created. Every dispute on " +
-            "this deployment is reachable today, however it was filed.",
+            "arbitrum-one is reachable today, however it was filed.",
         ),
       name: z
         .string()
@@ -215,6 +230,7 @@ const cli = Cli.create("kleros-disputant", {
         .optional()
         .describe("File extension of the attachment, such as pdf. Read by the subgraph only."),
     }),
+    alias: { chain: "c" },
     examples: [
       {
         description: "Check what would be submitted, sending nothing",
@@ -239,6 +255,7 @@ const cli = Cli.create("kleros-disputant", {
     ],
     async run(c) {
       const result = await runSubmitEvidence({
+        chain: c.options.chain,
         rpcUrl: c.options["rpc-url"],
         keyFile: c.options["key-file"],
         requireSigner: true,
@@ -250,7 +267,7 @@ const cli = Cli.create("kleros-disputant", {
         broadcast: c.options.broadcast,
         maxFeeGwei: c.options["max-fee-gwei"],
       });
-      return finish(c, result, { dispute: c.options.dispute });
+      return finish(c, result, { chain: c.options.chain, dispute: c.options.dispute });
     },
   })
   .command("upload-file", {

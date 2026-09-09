@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DISPUTE_RESOLVER } from "../deployment.js";
+import { contractsFor } from "../deployment.js";
+import { DEFAULT_DEPLOYMENT } from "../deployments.js";
 import type {
   ChainFacts,
   EvidenceChainFacts,
@@ -8,6 +9,9 @@ import type {
 } from "../preflight.js";
 import { checkEvidenceAddressable, checkEvidencePreflight, checkPreflight } from "../preflight.js";
 import { EXTRA_DATA_VECTORS } from "./vectors.js";
+
+/** The one deployment served today; ticket 04 makes the double take one. */
+const contracts = contractsFor(DEFAULT_DEPLOYMENT);
 
 /**
  * `spec/05 §1.2` — the safety core. **The single most important test file in the
@@ -38,6 +42,7 @@ const requested = (over: Partial<RequestedDispute> = {}): RequestedDispute => ({
 
 /** Everything the reads found, with nothing wrong. */
 const chain = (over: Partial<ChainFacts> = {}): ChainFacts => ({
+  deployment: DEFAULT_DEPLOYMENT.slug,
   courtExists: true,
   disputeKitsLength: DISPUTE_KITS_LENGTH,
   courtDisabled: false,
@@ -245,7 +250,8 @@ describe("addressability", () => {
   const facts = (over: Partial<EvidenceChainFacts> = {}): EvidenceChainFacts => ({
     coreDisputeID: 58n,
     courtID: 8n,
-    arbitrable: DISPUTE_RESOLVER.address,
+    arbitrable: contracts.disputeResolver.address,
+    disputeResolver: contracts.disputeResolver.address,
     localDisputeID: 33n,
     periodIndex: 0,
     ruled: false,
@@ -316,7 +322,8 @@ describe("the evidence pre-flight", () => {
   const evidenceFacts = (over: Partial<EvidenceChainFacts> = {}): EvidenceChainFacts => ({
     coreDisputeID: 216n,
     courtID: 1n,
-    arbitrable: DISPUTE_RESOLVER.address,
+    arbitrable: contracts.disputeResolver.address,
+    disputeResolver: contracts.disputeResolver.address,
     localDisputeID: 216n,
     periodIndex: 0,
     ruled: false,

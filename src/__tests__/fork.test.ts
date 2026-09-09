@@ -17,18 +17,13 @@ import { runCreateDispute, runSubmitEvidence } from "../commands/write.js";
 import { EVIDENCE_VECTORS, EXTRA_DATA_VECTORS, TEMPLATE_T1 } from "../core/__tests__/vectors.js";
 import { simulateAndMaybeBroadcast } from "../core/broadcast.js";
 import { createKlerosClient } from "../core/client.js";
-import {
-  ARBITRUM_ONE_CHAIN_ID,
-  DISPUTE_RESOLVER,
-  DISPUTE_RESOLVER_ABI,
-  DISPUTE_TEMPLATE_REGISTRY,
-  EVIDENCE_MODULE,
-  EVIDENCE_MODULE_ABI,
-  KLEROS_CORE,
-  KLEROS_CORE_ABI,
-} from "../core/deployment.js";
+import { contractsFor } from "../core/deployment.js";
+import { DEFAULT_DEPLOYMENT } from "../core/deployments.js";
 import { decodeRevert } from "../core/reverts.js";
 import { NO_DATA_MAPPINGS } from "../core/template.js";
+
+/** The one deployment served today; ticket 04 makes the double take one. */
+const contracts = contractsFor(DEFAULT_DEPLOYMENT);
 
 /**
  * The seven fork tests — `spec/05 §2`, and criteria 6, 7 and 8 of `spec/05 §5`.
@@ -61,12 +56,12 @@ const FORK_URL = "http://127.0.0.1:8546";
  */
 async function forkAvailable(): Promise<boolean> {
   try {
-    const client = createKlerosClient([FORK_URL]);
+    const client = createKlerosClient([FORK_URL], DEFAULT_DEPLOYMENT);
     const [chainId, code] = await Promise.all([
       client.getChainId(),
-      client.getCode({ address: KLEROS_CORE.address }),
+      client.getCode({ address: contracts.klerosCore.address }),
     ]);
-    return chainId === ARBITRUM_ONE_CHAIN_ID && code !== undefined && code !== "0x";
+    return chainId === DEFAULT_DEPLOYMENT.chainId && code !== undefined && code !== "0x";
   } catch {
     return false;
   }
@@ -111,7 +106,7 @@ beforeAll(() => {
   chmodSync(keyFile, 0o600);
   templateFile = join(dir, "template.json");
   writeFileSync(templateFile, JSON.stringify(TEMPLATE_T1), "utf8");
-  client = createKlerosClient([FORK_URL]);
+  client = createKlerosClient([FORK_URL], DEFAULT_DEPLOYMENT);
   disputant = privateKeyToAccount(DISPUTANT_KEY);
 });
 
@@ -131,8 +126,8 @@ const base = () => ({
 
 function quote(extraData: Hex): Promise<bigint> {
   return client.readContract({
-    address: KLEROS_CORE.address,
-    abi: KLEROS_CORE_ABI,
+    address: contracts.klerosCore.address,
+    abi: contracts.klerosCore.abi,
     functionName: "arbitrationCost",
     args: [extraData],
   }) as Promise<bigint>;
@@ -143,8 +138,8 @@ async function roundZero(
   coreDisputeID: bigint,
 ): Promise<{ nbVotes: bigint; disputeKitID: bigint }> {
   return (await client.readContract({
-    address: KLEROS_CORE.address,
-    abi: KLEROS_CORE_ABI,
+    address: contracts.klerosCore.address,
+    abi: contracts.klerosCore.abi,
     functionName: "getRoundInfo",
     args: [coreDisputeID, 0n],
   })) as { nbVotes: bigint; disputeKitID: bigint };
@@ -152,10 +147,10 @@ async function roundZero(
 
 function coreDisputeIDFrom(logs: readonly { address: string }[]): bigint {
   const created = parseEventLogs({
-    abi: KLEROS_CORE_ABI,
+    abi: contracts.klerosCore.abi,
     eventName: "DisputeCreation",
     logs: logs as never,
-  }).filter((log) => log.address.toLowerCase() === KLEROS_CORE.address.toLowerCase());
+  }).filter((log) => log.address.toLowerCase() === contracts.klerosCore.address.toLowerCase());
   const first = created[0];
   if (first === undefined) throw new Error("no DisputeCreation log in the receipt");
   return (first.args as { _disputeID: bigint })._disputeID;
@@ -172,8 +167,8 @@ function coreDisputeIDFrom(logs: readonly { address: string }[]): bigint {
 async function seedForeignArbitrable(count: number): Promise<void> {
   const foreign = privateKeyToAccount(FOREIGN_ARBITRABLE_KEY);
   const governor = (await client.readContract({
-    address: KLEROS_CORE.address,
-    abi: KLEROS_CORE_ABI,
+    address: contracts.klerosCore.address,
+    abi: contracts.klerosCore.abi,
     functionName: "governor",
   })) as Address;
 
@@ -181,12 +176,12 @@ async function seedForeignArbitrable(count: number): Promise<void> {
   await anvil.setBalance({ address: governor, value: 10n ** 20n });
   const whitelisted = await anvil.sendUnsignedTransaction({
     from: governor,
-    to: KLEROS_CORE.address,
+    to: contracts.klerosCore.address,
     // `eth_sendUnsignedTransaction` does not estimate, and an unset limit is
     // read as the block limit, which no balance covers.
     gas: 200_000n,
     data: encodeFunctionData({
-      abi: KLEROS_CORE_ABI,
+      abi: contracts.klerosCore.abi,
       functionName: "changeArbitrableWhitelist",
       args: [foreign.address, true],
     }),
@@ -202,8 +197,8 @@ async function seedForeignArbitrable(count: number): Promise<void> {
   const cost = await quote(X1.blob as Hex);
   for (let i = 0; i < count; i++) {
     const hash = await wallet.writeContract({
-      address: KLEROS_CORE.address,
-      abi: KLEROS_CORE_ABI,
+      address: contracts.klerosCore.address,
+      abi: contracts.klerosCore.abi,
       functionName: "createDispute",
       args: [2n, X1.blob as Hex],
       value: cost,
@@ -217,8 +212,8 @@ async function seedForeignArbitrable(count: number): Promise<void> {
 async function findDisputeInExecution(): Promise<bigint> {
   for (let id = 1n; id <= 40n; id++) {
     const dispute = (await client.readContract({
-      address: KLEROS_CORE.address,
-      abi: KLEROS_CORE_ABI,
+      address: contracts.klerosCore.address,
+      abi: contracts.klerosCore.abi,
       functionName: "disputes",
       args: [id],
     })) as readonly [bigint, Address, number, boolean, bigint];
@@ -319,7 +314,10 @@ describe.skipIf(!FORK_READY)("fork — spec/05 §2", () => {
       const outcome = await simulateAndMaybeBroadcast({
         client,
         account: disputant,
-        target: { address: DISPUTE_RESOLVER.address, abi: DISPUTE_RESOLVER_ABI as Abi },
+        target: {
+          address: contracts.disputeResolver.address,
+          abi: contracts.disputeResolver.abi as Abi,
+        },
         call: {
           functionName: "createDisputeForTemplate",
           args: [X1.blob as Hex, JSON.stringify(TEMPLATE_T1), NO_DATA_MAPPINGS, 2n],
@@ -329,6 +327,7 @@ describe.skipIf(!FORK_READY)("fork — spec/05 §2", () => {
         timeoutMs: TIMEOUT,
         balanceWei: before,
         rpcUrls: [FORK_URL],
+        deployment: DEFAULT_DEPLOYMENT,
       });
 
       expect(outcome.success).toBe(true);
@@ -367,8 +366,8 @@ describe.skipIf(!FORK_READY)("fork — spec/05 §2", () => {
       // envelope is what is under test (`spec/05 §5` criterion 8).
       const coreDisputeID = BigInt(result.data.coreDisputeID as string);
       const dispute = (await client.readContract({
-        address: KLEROS_CORE.address,
-        abi: KLEROS_CORE_ABI,
+        address: contracts.klerosCore.address,
+        abi: contracts.klerosCore.abi,
         functionName: "disputes",
         args: [coreDisputeID],
       })) as readonly [bigint, Address, number, boolean, bigint];
@@ -403,8 +402,8 @@ describe.skipIf(!FORK_READY)("fork — spec/05 §2", () => {
 
       // And the distinction is real here, which it is nowhere in production.
       const localID = (await client.readContract({
-        address: DISPUTE_RESOLVER.address,
-        abi: DISPUTE_RESOLVER_ABI,
+        address: contracts.disputeResolver.address,
+        abi: contracts.disputeResolver.abi,
         functionName: "arbitratorDisputeIDToLocalID",
         args: [coreDisputeID],
       })) as bigint;
@@ -414,7 +413,7 @@ describe.skipIf(!FORK_READY)("fork — spec/05 §2", () => {
       // `spec/appendix-a §2` claim 2, **[inferred]** and called unobservable in
       // production, settled here.
       const request = parseEventLogs({
-        abi: DISPUTE_RESOLVER_ABI,
+        abi: contracts.disputeResolver.abi,
         eventName: "DisputeRequest",
         logs: receipt.logs,
       })[0];
@@ -432,8 +431,8 @@ describe.skipIf(!FORK_READY)("fork — spec/05 §2", () => {
       // return value. Pinned here so the correction cannot quietly regress.
       const returned = (
         await client.simulateContract({
-          address: DISPUTE_RESOLVER.address,
-          abi: DISPUTE_RESOLVER_ABI,
+          address: contracts.disputeResolver.address,
+          abi: contracts.disputeResolver.abi,
           functionName: "createDisputeForTemplate",
           args: [X1.blob as Hex, JSON.stringify(TEMPLATE_T1), NO_DATA_MAPPINGS, 2n],
           account: disputant,
@@ -460,9 +459,9 @@ describe.skipIf(!FORK_READY)("fork — spec/05 §2", () => {
       const receipt = await client.getTransactionReceipt({ hash: result.data.txHash as Hex });
       const emitters = new Set(receipt.logs.map((log) => log.address.toLowerCase()));
 
-      expect(emitters.has(KLEROS_CORE.address.toLowerCase())).toBe(true);
-      expect(emitters.has(DISPUTE_RESOLVER.address.toLowerCase())).toBe(true);
-      expect(emitters.has(DISPUTE_TEMPLATE_REGISTRY.address.toLowerCase())).toBe(true);
+      expect(emitters.has(contracts.klerosCore.address.toLowerCase())).toBe(true);
+      expect(emitters.has(contracts.disputeResolver.address.toLowerCase())).toBe(true);
+      expect(emitters.has(contracts.disputeTemplateRegistry.address.toLowerCase())).toBe(true);
     },
     TIMEOUT,
   );
@@ -487,13 +486,17 @@ describe.skipIf(!FORK_READY)("fork — spec/05 §2", () => {
       const result = await simulateAndMaybeBroadcast({
         client,
         account: disputant,
-        target: { address: DISPUTE_RESOLVER.address, abi: DISPUTE_RESOLVER_ABI as Abi },
+        target: {
+          address: contracts.disputeResolver.address,
+          abi: contracts.disputeResolver.abi as Abi,
+        },
         call: { functionName: "createDisputeForTemplate", args },
         value,
         broadcast: false,
         timeoutMs: TIMEOUT,
         balanceWei: await client.getBalance({ address: disputant.address }),
         rpcUrls: [FORK_URL],
+        deployment: DEFAULT_DEPLOYMENT,
       });
       if (result.success) throw new Error("expected a revert");
       return { code: result.code, message: result.message };
@@ -561,8 +564,8 @@ describe.skipIf(!FORK_READY)("fork — spec/05 §2", () => {
         let decoded: ReturnType<typeof decodeRevert> | null = null;
         try {
           await client.simulateContract({
-            address: KLEROS_CORE.address,
-            abi: KLEROS_CORE_ABI,
+            address: contracts.klerosCore.address,
+            abi: contracts.klerosCore.abi,
             functionName: "createDispute",
             args: [2n, X1.blob as Hex],
             account: disputant,
@@ -638,10 +641,12 @@ describe.skipIf(!FORK_READY)("fork — spec/05 §2", () => {
         // E1, byte for byte, from `spec/02 §4.4`.
         const receipt = await client.getTransactionReceipt({ hash: result.data.txHash as Hex });
         const emitted = parseEventLogs({
-          abi: EVIDENCE_MODULE_ABI,
+          abi: contracts.evidenceModule.abi,
           eventName: "Evidence",
           logs: receipt.logs,
-        }).filter((log) => log.address.toLowerCase() === EVIDENCE_MODULE.address.toLowerCase());
+        }).filter(
+          (log) => log.address.toLowerCase() === contracts.evidenceModule.address.toLowerCase(),
+        );
         const args = emitted[0]?.args as
           | { _externalDisputeID: bigint; _party: Address; _evidence: string }
           | undefined;
@@ -653,8 +658,8 @@ describe.skipIf(!FORK_READY)("fork — spec/05 §2", () => {
         // makes the assertion say what it means, and it will separate the day a
         // second arbitrable files on this deployment.
         const localID = (await client.readContract({
-          address: DISPUTE_RESOLVER.address,
-          abi: DISPUTE_RESOLVER_ABI,
+          address: contracts.disputeResolver.address,
+          abi: contracts.disputeResolver.abi,
           functionName: "arbitratorDisputeIDToLocalID",
           args: [inExecution],
         })) as bigint;

@@ -1,15 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
-  assertArbitrumOne,
+  assertChain,
   checkDeployment,
-  DEFAULT_RPC_URL,
   EXPECTED_VERSIONS,
   parseRpcUrls,
   rpcError,
   startup,
 } from "../client.js";
-import { ARBITRUM_ONE_CHAIN_ID, DISPUTE_TEMPLATE_REGISTRY, KLEROS_CORE } from "../deployment.js";
+import { contractsFor } from "../deployment.js";
+import { DEFAULT_DEPLOYMENT } from "../deployments.js";
 import { failure, fakeClient, functionNames, success } from "./fake-client.js";
+
+const contracts = contractsFor(DEFAULT_DEPLOYMENT);
 
 /**
  * `spec/03 §7` — the startup checks, whose **ordering is a safety property**.
@@ -20,21 +22,22 @@ import { failure, fakeClient, functionNames, success } from "./fake-client.js";
  */
 
 const versions = () => [
-  success(KLEROS_CORE.address),
-  success(DISPUTE_TEMPLATE_REGISTRY.address),
+  success(contracts.klerosCore.address),
+  success(contracts.disputeTemplateRegistry.address),
   success(EXPECTED_VERSIONS.KlerosCore),
   success(EXPECTED_VERSIONS.EvidenceModule),
 ];
 
 describe("parseRpcUrls", () => {
   it("falls back to the public endpoint when the option is absent or blank", () => {
-    expect(parseRpcUrls(undefined)).toEqual([DEFAULT_RPC_URL]);
-    expect(parseRpcUrls("")).toEqual([DEFAULT_RPC_URL]);
-    expect(parseRpcUrls("  , ,")).toEqual([DEFAULT_RPC_URL]);
+    const fallback = [DEFAULT_DEPLOYMENT.defaultRpcUrl];
+    expect(parseRpcUrls(undefined, DEFAULT_DEPLOYMENT)).toEqual(fallback);
+    expect(parseRpcUrls("", DEFAULT_DEPLOYMENT)).toEqual(fallback);
+    expect(parseRpcUrls("  , ,", DEFAULT_DEPLOYMENT)).toEqual(fallback);
   });
 
   it("splits a comma-separated list and trims it", () => {
-    expect(parseRpcUrls("https://a.example , https://b.example")).toEqual([
+    expect(parseRpcUrls("https://a.example , https://b.example", DEFAULT_DEPLOYMENT)).toEqual([
       "https://a.example",
       "https://b.example",
     ]);
@@ -42,13 +45,30 @@ describe("parseRpcUrls", () => {
 });
 
 describe("the chain assertion", () => {
-  it("accepts 42161", async () => {
-    const result = await assertArbitrumOne(fakeClient({ chainId: ARBITRUM_ONE_CHAIN_ID }));
-    expect(result).toEqual({ success: true, data: ARBITRUM_ONE_CHAIN_ID });
+  it("accepts the selected deployment's own chain ID", async () => {
+    const client = fakeClient({ chainId: DEFAULT_DEPLOYMENT.chainId });
+    const result = await assertChain(client, DEFAULT_DEPLOYMENT);
+    expect(result).toEqual({ success: true, data: DEFAULT_DEPLOYMENT.chainId });
+  });
+
+  /**
+   * **The expected value is read from the deployment, not written down.** The
+   * assertion used to compare against a module constant; making the deployment
+   * a parameter is what lets a second one be added without a second constant,
+   * and this test is what says the comparison reads it.
+   */
+  it("compares against the deployment it was handed, not a constant", async () => {
+    const elsewhere = { ...DEFAULT_DEPLOYMENT, slug: "elsewhere", chainId: 421614 } as const;
+    const client = fakeClient({ chainId: DEFAULT_DEPLOYMENT.chainId });
+
+    const result = await assertChain(client, elsewhere as unknown as typeof DEFAULT_DEPLOYMENT);
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.message).toContain("421614");
   });
 
   it("refuses any other chain by name, and says nothing was sent", async () => {
-    const result = await assertArbitrumOne(fakeClient({ chainId: 1 }));
+    const result = await assertChain(fakeClient({ chainId: 1 }), DEFAULT_DEPLOYMENT);
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.code).toBe("WRONG_CHAIN");
@@ -67,7 +87,7 @@ describe("the chain assertion", () => {
         throw new Error("fetch failed");
       },
     });
-    const result = await assertArbitrumOne(client);
+    const result = await assertChain(client, DEFAULT_DEPLOYMENT);
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.code).toBe("RPC_ERROR");
@@ -76,7 +96,7 @@ describe("the chain assertion", () => {
 
 describe("the deployment's own view of itself", () => {
   it("passes when arbitrator() and templateRegistry() agree with the resolved addresses", async () => {
-    const result = await checkDeployment(fakeClient({ multicall: versions }));
+    const result = await checkDeployment(fakeClient({ multicall: versions }), contracts);
     expect(result).toEqual({ success: true, data: [] });
   });
 
@@ -88,12 +108,13 @@ describe("the deployment's own view of itself", () => {
     const result = await checkDeployment(
       fakeClient({
         multicall: () => [
-          success(KLEROS_CORE.address.toLowerCase()),
-          success(DISPUTE_TEMPLATE_REGISTRY.address.toLowerCase()),
+          success(contracts.klerosCore.address.toLowerCase()),
+          success(contracts.disputeTemplateRegistry.address.toLowerCase()),
           success(EXPECTED_VERSIONS.KlerosCore),
           success(EXPECTED_VERSIONS.EvidenceModule),
         ],
       }),
+      contracts,
     );
     expect(result.success).toBe(true);
   });
@@ -104,11 +125,12 @@ describe("the deployment's own view of itself", () => {
       fakeClient({
         multicall: () => [
           success(other),
-          success(DISPUTE_TEMPLATE_REGISTRY.address),
+          success(contracts.disputeTemplateRegistry.address),
           success(EXPECTED_VERSIONS.KlerosCore),
           success(EXPECTED_VERSIONS.EvidenceModule),
         ],
       }),
+      contracts,
     );
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -121,12 +143,13 @@ describe("the deployment's own view of itself", () => {
     const result = await checkDeployment(
       fakeClient({
         multicall: () => [
-          success(KLEROS_CORE.address),
+          success(contracts.klerosCore.address),
           success("0x2222222222222222222222222222222222222222"),
           success(EXPECTED_VERSIONS.KlerosCore),
           success(EXPECTED_VERSIONS.EvidenceModule),
         ],
       }),
+      contracts,
     );
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -139,6 +162,7 @@ describe("the deployment's own view of itself", () => {
       fakeClient({
         multicall: () => [failure(), failure(), success("0.10.0"), success("0.8.0")],
       }),
+      contracts,
     );
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -150,12 +174,13 @@ describe("the deployment's own view of itself", () => {
     const result = await checkDeployment(
       fakeClient({
         multicall: () => [
-          success(KLEROS_CORE.address),
-          success(DISPUTE_TEMPLATE_REGISTRY.address),
+          success(contracts.klerosCore.address),
+          success(contracts.disputeTemplateRegistry.address),
           success("0.11.0"),
           success(EXPECTED_VERSIONS.EvidenceModule),
         ],
       }),
+      contracts,
     );
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -173,12 +198,13 @@ describe("the deployment's own view of itself", () => {
     const result = await checkDeployment(
       fakeClient({
         multicall: () => [
-          success(KLEROS_CORE.address),
-          success(DISPUTE_TEMPLATE_REGISTRY.address),
+          success(contracts.klerosCore.address),
+          success(contracts.disputeTemplateRegistry.address),
           success(EXPECTED_VERSIONS.KlerosCore),
           failure(),
         ],
       }),
+      contracts,
     );
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -188,13 +214,14 @@ describe("the deployment's own view of itself", () => {
 
 describe("startup ordering", () => {
   /**
-   * The one ordering that matters: a deployment registry lookup is scoped to a
-   * deployment, so trusting it on an unverified chain reads the wrong core. On a
-   * wrong chain **no contract call may be made at all**.
+   * The one ordering that matters — **no contract call before the chain
+   * assertion** (ADR-0015). Resolving the addresses is local and happens first;
+   * *using* one on an unverified chain is the hazard, so on a wrong chain no
+   * contract call may be made at all.
    */
   it("makes no contract call when the chain assertion fails", async () => {
     const client = fakeClient({ chainId: 1, multicall: versions });
-    const result = await startup(client);
+    const result = await startup(client, DEFAULT_DEPLOYMENT);
 
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -204,11 +231,16 @@ describe("startup ordering", () => {
 
   it("asks the deployment about itself before anything else, in one batch", async () => {
     const client = fakeClient({ multicall: versions });
-    const result = await startup(client);
+    const result = await startup(client, DEFAULT_DEPLOYMENT);
 
     expect(result).toEqual({
       success: true,
-      data: { chainId: ARBITRUM_ONE_CHAIN_ID, warnings: [] },
+      data: {
+        deployment: DEFAULT_DEPLOYMENT,
+        contracts,
+        chainId: DEFAULT_DEPLOYMENT.chainId,
+        warnings: [],
+      },
     });
     expect(client.calls).toHaveLength(1);
     expect(functionNames(client.calls[0])).toEqual([

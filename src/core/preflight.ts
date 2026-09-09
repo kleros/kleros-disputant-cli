@@ -1,5 +1,5 @@
 import type { Address, Hex } from "viem";
-import { DISPUTE_RESOLVER } from "./deployment.js";
+import type { DeploymentSlug } from "./deployments.js";
 import { encodeExtraData } from "./extra-data.js";
 import { err, type KlerosResult, ok } from "./result.js";
 
@@ -58,6 +58,12 @@ export type RequestedDispute = RequestedExtraData & {
  */
 export type ChainFacts = {
   /**
+   * Which deployment these facts came from. Carried so a refusal can point the
+   * caller at the same deployment it just refused on, rather than at a slug
+   * written into a hint (`spec/03 §5.4`).
+   */
+  deployment: DeploymentSlug;
+  /**
    * Whether `courtID` resolves at all, from `getTimesPerPeriod(courtID)` — which
    * reverts with a decodable `Array index is out of bounds.` panic past the end of
    * the array. **[live]**
@@ -99,8 +105,18 @@ export type ExtraDataResult = RequestedExtraData & {
 
 export type PreflightResult = ExtraDataResult & { numberOfRulingOptions: bigint };
 
-/** `kleros`, the peer read-plane CLI — verified against agentkit's own command tree. */
-const COURT_LIST_HINT = "kleros court list --chain arbitrum-one";
+/**
+ * `kleros`, the peer read-plane CLI — verified against agentkit's own command
+ * tree, and **carrying the deployment the refusal happened on**.
+ *
+ * It used to hardcode `--chain arbitrum-one`. That was the CTA bug this feature
+ * fixes, present before the flag existed: a caller refused on one deployment was
+ * sent to look up a court on another, and would have found a court that exists
+ * there and still be wrong.
+ */
+function courtListHint(deployment: DeploymentSlug): string {
+  return `kleros court list --chain ${deployment}`;
+}
 
 /**
  * Refusal ordering is a diagnosis quality, not style: an out-of-range court is
@@ -112,6 +128,7 @@ export function checkExtraData({
   chain,
 }: ExtraDataFacts): KlerosResult<ExtraDataResult> {
   const { courtID, jurors, disputeKitID } = requested;
+  const courtList = courtListHint(chain.deployment);
 
   // 1. Court in range. Court 0 is the Forking Court: it does not revert and
   //    reads all-zero, and the decoder maps it to General alongside any
@@ -122,7 +139,7 @@ export function checkExtraData({
       "COURT_OUT_OF_RANGE",
       "Court 0 is the Forking Court and is never a valid target: KlerosCore would create the " +
         "dispute in the General Court instead. Court IDs start at 1. Nothing was sent.",
-      { courtID: courtID.toString(), hint: COURT_LIST_HINT },
+      { courtID: courtID.toString(), hint: courtList },
     );
   }
   if (chain.courtExists === undefined) {
@@ -130,7 +147,7 @@ export function checkExtraData({
       "COURT_OUT_OF_RANGE",
       `Court ${courtID} could not be confirmed to exist: KlerosCore.getTimesPerPeriod(${courtID}) ` +
         "was not read. Nothing was sent.",
-      { courtID: courtID.toString(), hint: COURT_LIST_HINT },
+      { courtID: courtID.toString(), hint: courtList },
     );
   }
   if (!chain.courtExists) {
@@ -138,7 +155,7 @@ export function checkExtraData({
       "COURT_OUT_OF_RANGE",
       `Court ${courtID} does not exist on KlerosCore. A dispute asking for it would be created ` +
         "in the General Court and paid for. Nothing was sent.",
-      { courtID: courtID.toString(), hint: COURT_LIST_HINT },
+      { courtID: courtID.toString(), hint: courtList },
     );
   }
 
@@ -155,7 +172,7 @@ export function checkExtraData({
     return err(
       "COURT_DISABLED",
       `Court ${courtID} is disabled and cannot take new disputes. Nothing was sent.`,
-      { courtID: courtID.toString(), hint: COURT_LIST_HINT },
+      { courtID: courtID.toString(), hint: courtList },
     );
   }
 
@@ -197,9 +214,9 @@ export function checkExtraData({
   if (!chain.kitSupported) {
     return err(
       "DISPUTE_KIT_NOT_SUPPORTED",
-      `Court ${courtID} does not support dispute kit ${disputeKitID}. Kit support is per court: ` +
-        "every court on Arbitrum One supports Classic (kit 1), and a few support others. " +
-        "Nothing was sent.",
+      `Court ${courtID} does not support dispute kit ${disputeKitID}. Kit support is per court, ` +
+        "and read live rather than tabled: on arbitrum-one every court supports Classic " +
+        "(kit 1) and a few support others. Nothing was sent.",
       { courtID: courtID.toString(), disputeKitID: disputeKitID.toString() },
     );
   }
@@ -344,6 +361,12 @@ export type EvidenceChainFacts = {
   /** `disputes().arbitrated` — the contract that asked for this ruling. */
   arbitrable: Address;
   /**
+   * The `DisputeResolver` of the deployment these facts were read from — the
+   * address `arbitrable` is judged against. Carried in the facts rather than
+   * imported, so `checkEvidenceAddressable` stays a pure function over them.
+   */
+  disputeResolver: Address;
+  /**
    * The arbitrable's own index for this dispute, or **`null` when the arbitrable
    * is not `DisputeResolver`** — a foreign dispute has no local index this tool
    * can know, and the mapping's zero default must never be mistaken for one.
@@ -396,7 +419,7 @@ export function checkEvidenceAddressable(facts: EvidenceChainFacts): KlerosResul
   // a foreign dispute, but `spec/03 §8` says judgement belongs *here*, and a
   // refusal whose whole guarantee is a ternary in the read layer is one tidy-up
   // away from gone. The arbitrable is the criterion; the `null` is the belt.
-  const ours = facts.arbitrable.toLowerCase() === DISPUTE_RESOLVER.address.toLowerCase();
+  const ours = facts.arbitrable.toLowerCase() === facts.disputeResolver.toLowerCase();
   if (ours && facts.localDisputeID !== null) return ok(facts.localDisputeID);
 
   return err(

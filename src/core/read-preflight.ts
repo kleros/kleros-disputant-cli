@@ -1,12 +1,7 @@
 import type { Address, Hex, PublicClient } from "viem";
 import { parseEventLogs } from "viem";
 import { type MulticallEntry, multicall, type Outcome, rpcError } from "./client.js";
-import {
-  DISPUTE_RESOLVER,
-  DISPUTE_RESOLVER_ABI,
-  KLEROS_CORE,
-  KLEROS_CORE_ABI,
-} from "./deployment.js";
+import type { DeploymentContracts } from "./deployment.js";
 import type { ChainFacts, EffectiveDispute, EvidenceChainFacts } from "./preflight.js";
 import { err, type KlerosResult, ok } from "./result.js";
 
@@ -25,12 +20,15 @@ import { err, type KlerosResult, ok } from "./result.js";
  * read this tool does not make.
  *
  * Every startup check in `spec/03 §7` MUST have run before any function here is
- * called: these are registry-scoped reads, and on an unverified chain they read
- * the wrong core.
+ * called: these are contract calls, and on an unverified chain they read the
+ * wrong core.
+ *
+ * **Every function here takes the resolved `DeploymentContracts`** rather than
+ * reaching for a module-level constant. That is what makes "no contract call
+ * before the chain assertion" checkable by reading a signature: nothing in this
+ * file can name an address it was not handed, and it can only be handed one that
+ * `startup` resolved.
  */
-
-const core = { address: KLEROS_CORE.address, abi: KLEROS_CORE_ABI } as const;
-const resolver = { address: DISPUTE_RESOLVER.address, abi: DISPUTE_RESOLVER_ABI } as const;
 
 /**
  * `courts` and `getTimesPerPeriod` take a `uint96`; `disputes`, `isSupported`
@@ -46,6 +44,7 @@ const UINT256_MAX = 2n ** 256n - 1n;
 
 export type ReadCreateDisputeParams = {
   client: PublicClient;
+  contracts: DeploymentContracts;
   courtID: bigint;
   disputeKitID: bigint;
 };
@@ -65,7 +64,8 @@ export type ReadCreateDisputeParams = {
 export async function readCreateDisputeFacts(
   params: ReadCreateDisputeParams,
 ): Promise<KlerosResult<ChainFacts>> {
-  const { client, courtID, disputeKitID } = params;
+  const { client, contracts, courtID, disputeKitID } = params;
+  const core = contracts.klerosCore;
 
   const courtEncodable = courtID <= UINT96_MAX;
   const kitEncodable = disputeKitID <= UINT256_MAX;
@@ -111,8 +111,7 @@ export async function readCreateDisputeFacts(
   const kits = outcome("kits");
   if (kits?.status !== "success") {
     return rpcError(
-      `KlerosCore at ${KLEROS_CORE.address} did not answer getDisputeKitsLength(). ` +
-        "Nothing was sent.",
+      `KlerosCore at ${core.address} did not answer getDisputeKitsLength(). Nothing was sent.`,
       kits?.status === "failure" ? kits.error : undefined,
     );
   }
@@ -122,6 +121,7 @@ export async function readCreateDisputeFacts(
   const supported = outcome("supported");
 
   return ok({
+    deployment: contracts.deployment.slug,
     // Absent from the batch means the ID does not fit `uint96`, which is not a
     // court; a failed entry means `getTimesPerPeriod` reverted past the end of
     // the array. Both are "no such court" — the distinction has no consumer.
@@ -137,6 +137,7 @@ export async function readCreateDisputeFacts(
 
 export type ReadEvidenceParams = {
   client: PublicClient;
+  contracts: DeploymentContracts;
   coreDisputeID: bigint;
 };
 
@@ -162,7 +163,9 @@ export type ReadEvidenceParams = {
 export async function readEvidenceFacts(
   params: ReadEvidenceParams,
 ): Promise<KlerosResult<EvidenceChainFacts>> {
-  const { client, coreDisputeID } = params;
+  const { client, contracts, coreDisputeID } = params;
+  const core = contracts.klerosCore;
+  const resolver = contracts.disputeResolver;
 
   if (coreDisputeID > UINT256_MAX) {
     return disputeNotFound(coreDisputeID);
@@ -213,8 +216,8 @@ export async function readEvidenceFacts(
   // default for the first dispute. Only a dispute this arbitrable created has a
   // local index at all, and deciding what to do about that is the write path's
   // job — `status` reads a foreign dispute perfectly well and must not refuse it.
-  const localDisputeID = addresses(arbitrable, DISPUTE_RESOLVER.address)
-    ? localID(first[1], coreDisputeID)
+  const localDisputeID = addresses(arbitrable, resolver.address)
+    ? localID(first[1], coreDisputeID, resolver.address)
     : ok(null);
   if (!localDisputeID.success) return localDisputeID;
 
@@ -240,6 +243,9 @@ export async function readEvidenceFacts(
     coreDisputeID,
     courtID,
     arbitrable,
+    // The address the arbitrable is judged against, carried into the facts so
+    // `checkEvidenceAddressable` stays a pure function over them (`spec/03 §8`).
+    disputeResolver: resolver.address,
     localDisputeID: localDisputeID.data,
     periodIndex: Number(periodIndex),
     ruled,
@@ -263,14 +269,18 @@ function addresses(a: Address, b: Address): boolean {
  * address or the ABI this tool bound to is not what is deployed. Reporting that
  * as a missing mapping would send evidence to local ID 0.
  */
-function localID(outcome: Outcome | undefined, coreDisputeID: bigint): KlerosResult<bigint> {
+function localID(
+  outcome: Outcome | undefined,
+  coreDisputeID: bigint,
+  resolver: Address,
+): KlerosResult<bigint> {
   if (outcome?.status !== "success") {
     return err(
       "DEPLOYMENT_INCONSISTENT",
       `DisputeResolver did not answer arbitratorDisputeIDToLocalID(${coreDisputeID}). It is a ` +
-        `public mapping getter and cannot revert, so ${DISPUTE_RESOLVER.address} is not the ` +
-        "DisputeResolver this tool was built against. Nothing was sent.",
-      { coreDisputeID: coreDisputeID.toString(), resolver: DISPUTE_RESOLVER.address },
+        `public mapping getter and cannot revert, so ${resolver} is not the DisputeResolver ` +
+        "this tool was built against. Nothing was sent.",
+      { coreDisputeID: coreDisputeID.toString(), resolver },
     );
   }
   return ok(outcome.result as bigint);
@@ -309,8 +319,11 @@ function disputeNotFound(coreDisputeID: bigint): KlerosResult<never> {
  */
 export async function quoteArbitrationCost(params: {
   client: PublicClient;
+  contracts: DeploymentContracts;
   extraData: Hex;
 }): Promise<KlerosResult<bigint>> {
+  const core = params.contracts.klerosCore;
+
   let results: Outcome[];
   try {
     results = await multicall(params.client, [
@@ -326,7 +339,7 @@ export async function quoteArbitrationCost(params: {
   const quote = results[0];
   if (quote?.status !== "success") {
     return rpcError(
-      `KlerosCore at ${KLEROS_CORE.address} did not answer arbitrationCost(bytes). Nothing was sent.`,
+      `KlerosCore at ${core.address} did not answer arbitrationCost(bytes). Nothing was sent.`,
       quote?.status === "failure" ? quote.error : undefined,
     );
   }
@@ -376,8 +389,11 @@ export async function readBalance(params: {
  */
 export async function readCreatedDisputeID(params: {
   client: PublicClient;
+  contracts: DeploymentContracts;
   txHash: Hex;
 }): Promise<KlerosResult<bigint>> {
+  const core = params.contracts.klerosCore;
+
   let receipt: Awaited<ReturnType<PublicClient["getTransactionReceipt"]>>;
   try {
     receipt = await params.client.getTransactionReceipt({ hash: params.txHash });
@@ -390,16 +406,16 @@ export async function readCreatedDisputeID(params: {
   }
 
   const created = parseEventLogs({
-    abi: KLEROS_CORE_ABI,
+    abi: core.abi,
     eventName: "DisputeCreation",
     logs: receipt.logs,
-  }).filter((log) => isSameAddress(log.address, KLEROS_CORE.address));
+  }).filter((log) => isSameAddress(log.address, core.address));
 
   const first = created[0];
   if (first === undefined) {
     return err(
       "DEPLOYMENT_INCONSISTENT",
-      `Transaction ${params.txHash} was mined but KlerosCore at ${KLEROS_CORE.address} emitted ` +
+      `Transaction ${params.txHash} was mined but KlerosCore at ${core.address} emitted ` +
         "no DisputeCreation event, so there is no core dispute ID to report. The arbitration " +
         "fee is spent. Check the transaction before creating a replacement.",
       {
@@ -422,9 +438,11 @@ export async function readCreatedDisputeID(params: {
  */
 export async function readEffectiveDispute(params: {
   client: PublicClient;
+  contracts: DeploymentContracts;
   coreDisputeID: bigint;
 }): Promise<KlerosResult<EffectiveDispute>> {
   const { client, coreDisputeID } = params;
+  const core = params.contracts.klerosCore;
 
   let results: Outcome[];
   try {
@@ -482,8 +500,11 @@ export type CurrentRuling = {
  */
 export async function readCurrentRuling(params: {
   client: PublicClient;
+  contracts: DeploymentContracts;
   coreDisputeID: bigint;
 }): Promise<KlerosResult<CurrentRuling>> {
+  const core = params.contracts.klerosCore;
+
   let results: Outcome[];
   try {
     results = await multicall(params.client, [

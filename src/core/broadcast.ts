@@ -1,8 +1,8 @@
 import type { Abi, Address, Hex, PrivateKeyAccount, PublicClient } from "viem";
 import { createWalletClient, formatEther, http } from "viem";
-import { arbitrum } from "viem/chains";
 import { rpcError } from "./client.js";
 import { checkBalance } from "./cost.js";
+import type { Deployment } from "./deployments.js";
 import { err, type KlerosResult, ok } from "./result.js";
 import { decodeRevert } from "./reverts.js";
 
@@ -81,6 +81,17 @@ export type BroadcastParams = {
   balanceWei: bigint;
   maxFeePerGas?: bigint;
   rpcUrls: readonly string[];
+  /**
+   * The deployment being signed against.
+   *
+   * **It is what the transaction is signed *for*, not a label.** viem puts this
+   * chain's ID into the EIP-155 signature, so a hardcoded one would sign every
+   * transaction for chain 42161 whatever `--chain` selected: it would pass the
+   * chain assertion, the quote and the balance check, and only then be rejected
+   * by the node as `BROADCAST_FAILED`. Every other address in this call is
+   * already a function of the deployment; this was the last thing that was not.
+   */
+  deployment: Deployment;
 };
 
 export type FeePlan = {
@@ -210,7 +221,7 @@ export async function simulateAndMaybeBroadcast(
 
   const wallet = createWalletClient({
     account,
-    chain: arbitrum,
+    chain: params.deployment.chain,
     // The first endpoint only. `fallback` retrying a *write* would risk a second
     // submission of a transaction the first endpoint may already have accepted,
     // and `spec/04 §5` rules out retries on this path outright.
@@ -225,7 +236,7 @@ export async function simulateAndMaybeBroadcast(
       maxFeePerGas,
       // Tips are ignored on Arbitrum; zero states that plainly. Kept verbatim.
       maxPriorityFeePerGas: 0n,
-      chain: arbitrum,
+      chain: params.deployment.chain,
     });
   } catch (cause) {
     const { reason, data, guidance } = decodeRevert(cause);

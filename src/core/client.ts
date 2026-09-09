@@ -1,73 +1,76 @@
 import type { Address, PublicClient } from "viem";
 import { createPublicClient, fallback, getAddress, http } from "viem";
-import { arbitrum } from "viem/chains";
-import {
-  ARBITRUM_ONE_CHAIN_ID,
-  DISPUTE_RESOLVER,
-  DISPUTE_RESOLVER_ABI,
-  DISPUTE_TEMPLATE_REGISTRY,
-  EVIDENCE_MODULE,
-  EVIDENCE_MODULE_ABI,
-  KLEROS_CORE,
-  KLEROS_CORE_ABI,
-} from "./deployment.js";
+import { contractsFor, type DeploymentContracts } from "./deployment.js";
+import type { Deployment } from "./deployments.js";
 import { err, type KlerosResult, ok } from "./result.js";
 
 /**
  * The RPC client and the startup checks — `spec/03 §7`.
  *
- * **Ordering here is a safety property, not style.** Every address and ABI this
- * tool holds is specific to chain 42161, and a deployment registry lookup is
- * scoped to a deployment: trusting one on an unverified chain reads the wrong
- * core. So `eth_chainId` is asserted first, strictly before anything else
- * touches the deployment.
+ * **Ordering here is a safety property, not style.** The invariant is **no
+ * contract call before the chain assertion** (ADR-0015). Resolving a
+ * deployment's addresses is a local act; *using* one on an unverified chain is
+ * the hazard, so `eth_chainId` is the first network call and the first contract
+ * call comes strictly after it.
+ *
+ * The assertion compares against **the selected deployment's own expected chain
+ * ID**, never a constant. It cannot tell two deployments on one chain ID apart
+ * and does not need to: an endpoint does not choose the contracts, the address
+ * resolution does, so a mis-pointed endpoint can only be wrong about the chain
+ * — which is exactly what this catches.
  *
  * Nothing in this module judges a request. It establishes that the tool is
- * talking to the chain it was built for, and warns where the deployment has
- * moved underneath the specification.
+ * talking to the chain the selected deployment lives on, and warns where that
+ * deployment has moved underneath the specification.
  */
 
 /**
- * The public endpoint, used when `--rpc-url` is absent. It is rate-limited and
- * an operator filing a real dispute should point at their own; it is a default
- * so that a read command works out of the box, not a recommendation.
+ * `--rpc-url` may carry a comma-separated list, and falls back to the selected
+ * deployment's own default endpoint.
+ *
+ * There is deliberately **no environment variable read here**: `spec/03 §3.1`
+ * fixes the option set, and the one thing this CLI reads from outside the
+ * command line is the key file, whose path is itself an option (`spec/03 §6`).
+ * The per-deployment override variable each deployment names is transport
+ * configuration and lands with the second deployment; nothing about it can ever
+ * select the **target** (`deployments.ts`).
  */
-export const DEFAULT_RPC_URL = "https://arb1.arbitrum.io/rpc";
-
-/**
- * `--rpc-url` may carry a comma-separated list. There is deliberately **no
- * environment variable** for it: `spec/03 §3.1` fixes the option set, and the
- * one thing this CLI reads from outside the command line is the key file, whose
- * path is itself an option (`spec/03 §6`).
- */
-export function parseRpcUrls(value: string | undefined): string[] {
+export function parseRpcUrls(value: string | undefined, deployment: Deployment): string[] {
   const urls = (value ?? "")
     .split(",")
     .map((url) => url.trim())
     .filter((url) => url.length > 0);
-  return urls.length > 0 ? urls : [DEFAULT_RPC_URL];
+  return urls.length > 0 ? urls : [deployment.defaultRpcUrl];
 }
 
 /**
- * A read client over one or more Arbitrum One endpoints.
+ * A read client over one or more endpoints for a deployment's chain.
  *
  * `fallback` retries the next endpoint on transport failure, which covers the
- * most likely stall on this chain: an endpoint that accepted a request and did
- * not forward it (`spec/04 §1`). It is **not** a substitute for the chain
- * assertion below — a fallback list pointed at the wrong network is still
- * pointed at the wrong network, and viem's `chain:` field is a local claim, not
- * a check.
+ * most likely stall: an endpoint that accepted a request and did not forward it
+ * (`spec/04 §1`). It is **not** a substitute for the chain assertion below — a
+ * fallback list pointed at the wrong network is still pointed at the wrong
+ * network, and viem's `chain:` field is a local claim, not a check.
  */
-export function createKlerosClient(rpcUrls: readonly string[] = [DEFAULT_RPC_URL]): PublicClient {
-  const urls = rpcUrls.length > 0 ? rpcUrls : [DEFAULT_RPC_URL];
+export function createKlerosClient(
+  rpcUrls: readonly string[],
+  deployment: Deployment,
+): PublicClient {
+  const urls = rpcUrls.length > 0 ? rpcUrls : [deployment.defaultRpcUrl];
   return createPublicClient({
-    chain: arbitrum,
+    chain: deployment.chain,
     transport: fallback(urls.map((url) => http(url))),
   });
 }
 
-/** `spec/03 §7` step 1. Runs before any deployment registry lookup. */
-export async function assertArbitrumOne(client: PublicClient): Promise<KlerosResult<number>> {
+/**
+ * `spec/03 §7` step 3 — the **first network call**, and the last thing that runs
+ * before any resolved address is used against an endpoint.
+ */
+export async function assertChain(
+  client: PublicClient,
+  deployment: Deployment,
+): Promise<KlerosResult<number>> {
   let chainId: number;
   try {
     chainId = await client.getChainId();
@@ -75,13 +78,19 @@ export async function assertArbitrumOne(client: PublicClient): Promise<KlerosRes
     return rpcError("Could not read the chain ID from the configured RPC endpoint.", cause);
   }
 
-  if (chainId !== ARBITRUM_ONE_CHAIN_ID) {
+  if (chainId !== deployment.chainId) {
     return err(
       "WRONG_CHAIN",
-      `Connected to chain ${chainId}, but this tool only operates on Arbitrum One ` +
-        `(${ARBITRUM_ONE_CHAIN_ID}). Every address it holds is meaningless elsewhere, not ` +
-        "merely wrong. Nothing was sent.",
-      { chainId, expected: ARBITRUM_ONE_CHAIN_ID, hint: "Point --rpc-url at an Arbitrum One RPC." },
+      `Connected to chain ${chainId}, but the ${deployment.slug} deployment lives on chain ` +
+        `${deployment.chainId}. Every address this tool resolved for it is meaningless ` +
+        "elsewhere, not merely wrong. Nothing was sent.",
+      {
+        chainId,
+        expected: deployment.chainId,
+        hint:
+          `Point --rpc-url at an endpoint for chain ${deployment.chainId}, or select a ` +
+          "different deployment with --chain.",
+      },
     );
   }
 
@@ -103,8 +112,13 @@ export const EXPECTED_VERSIONS = {
 } as const;
 
 export type StartupFacts = {
+  /** The deployment that was resolved, echoed by every envelope. */
+  deployment: Deployment;
+  /** The deployment's own contracts, resolved once and threaded on. */
+  contracts: DeploymentContracts;
+  /** The chain ID that was **asserted**, never the one that was expected. */
   chainId: number;
-  /** Version mismatches. Never a failure — `spec/03 §7` step 4. */
+  /** Version mismatches. Never a failure — `spec/03 §7` step 5. */
   warnings: string[];
 };
 
@@ -144,25 +158,31 @@ export async function multicall(
 }
 
 /**
- * `spec/03 §7` steps 3 and 4, in one round trip.
+ * `spec/03 §7` steps 4 and 5, in one round trip. **The first contract calls**,
+ * and they run only after `assertChain` has passed.
  *
- * Step 3 is a **failure**: the specification's claim that the deployment is
+ * Step 4 is a **failure**: the specification's claim that the deployment is
  * internally consistent is what licenses writing to `DisputeResolver` while
  * quoting from `KlerosCore`, and if the two disagree then one of the two
- * registry entries is stale and the tool cannot tell which. Step 4 is a
- * **warning**: a version bump moves revert encodings and cost behaviour that
- * `spec/01` describes, which is a reason to re-read it, not a reason to refuse.
+ * registry entries is stale and the tool cannot tell which. It catches a stale
+ * registry entry or an upstream redeployment — **not** a mis-pointed endpoint,
+ * which `assertChain` already caught (ADR-0015). Step 5 is a **warning**: a
+ * version bump moves revert encodings and cost behaviour that `spec/01`
+ * describes, which is a reason to re-read it, not a reason to refuse.
  */
-export async function checkDeployment(client: PublicClient): Promise<KlerosResult<string[]>> {
-  const resolver = { address: DISPUTE_RESOLVER.address, abi: DISPUTE_RESOLVER_ABI } as const;
+export async function checkDeployment(
+  client: PublicClient,
+  contracts: DeploymentContracts,
+): Promise<KlerosResult<string[]>> {
+  const { klerosCore, disputeResolver, evidenceModule, disputeTemplateRegistry } = contracts;
 
   let results: Outcome[];
   try {
     results = await multicall(client, [
-      { ...resolver, functionName: "arbitrator" },
-      { ...resolver, functionName: "templateRegistry" },
-      { address: KLEROS_CORE.address, abi: KLEROS_CORE_ABI, functionName: "version" },
-      { address: EVIDENCE_MODULE.address, abi: EVIDENCE_MODULE_ABI, functionName: "version" },
+      { ...disputeResolver, functionName: "arbitrator" },
+      { ...disputeResolver, functionName: "templateRegistry" },
+      { ...klerosCore, functionName: "version" },
+      { ...evidenceModule, functionName: "version" },
     ]);
   } catch (cause) {
     return rpcError("Could not read the deployment's own view of itself.", cause);
@@ -173,16 +193,17 @@ export async function checkDeployment(client: PublicClient): Promise<KlerosResul
   if (arbitrator?.status !== "success" || registry?.status !== "success") {
     return err(
       "DEPLOYMENT_INCONSISTENT",
-      `DisputeResolver at ${DISPUTE_RESOLVER.address} did not answer arbitrator() or ` +
+      `DisputeResolver at ${disputeResolver.address} did not answer arbitrator() or ` +
         "templateRegistry(). Either the address is not the contract this tool was built " +
-        "against, or the endpoint is serving a different chain's state. Nothing was sent.",
-      { disputeResolver: DISPUTE_RESOLVER.address },
+        `against, or the endpoint is serving a chain other than ${contracts.deployment.slug}'s. ` +
+        "Nothing was sent.",
+      { disputeResolver: disputeResolver.address },
     );
   }
 
   const mismatch = firstAddressMismatch([
-    ["arbitrator()", arbitrator.result, KLEROS_CORE.address, "KlerosCore"],
-    ["templateRegistry()", registry.result, DISPUTE_TEMPLATE_REGISTRY.address, "the registry"],
+    ["arbitrator()", arbitrator.result, klerosCore.address, "KlerosCore"],
+    ["templateRegistry()", registry.result, disputeTemplateRegistry.address, "the registry"],
   ]);
   if (mismatch) {
     return err(
@@ -216,18 +237,30 @@ export async function checkDeployment(client: PublicClient): Promise<KlerosResul
 }
 
 /**
- * The whole of `spec/03 §7` in the order that section fixes: chain, then the
- * deployment's own view of itself, then versions. Command-specific pre-flight is
- * the caller's next step and never runs before this returns.
+ * `spec/03 §7` steps 2 through 5, in the order that section fixes: resolve the
+ * deployment's contracts locally, assert the chain, then the deployment's own
+ * view of itself, then versions. Step 1 — the slug — has already happened, in
+ * `deployments.ts`, which is why nothing here can be handed a deployment this
+ * tool does not serve. Command-specific pre-flight is step 6 and is the caller's
+ * next move.
+ *
+ * `contractsFor` is called **before** the assertion and that is deliberate: it
+ * opens no socket and reveals nothing, and the invariant is about contract
+ * calls, not registry lookups (ADR-0015).
  */
-export async function startup(client: PublicClient): Promise<KlerosResult<StartupFacts>> {
-  const chain = await assertArbitrumOne(client);
+export async function startup(
+  client: PublicClient,
+  deployment: Deployment,
+): Promise<KlerosResult<StartupFacts>> {
+  const contracts = contractsFor(deployment);
+
+  const chain = await assertChain(client, deployment);
   if (!chain.success) return chain;
 
-  const deployment = await checkDeployment(client);
-  if (!deployment.success) return deployment;
+  const consistent = await checkDeployment(client, contracts);
+  if (!consistent.success) return consistent;
 
-  return ok({ chainId: chain.data, warnings: deployment.data });
+  return ok({ deployment, contracts, chainId: chain.data, warnings: consistent.data });
 }
 
 function firstAddressMismatch(

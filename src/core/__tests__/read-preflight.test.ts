@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { DISPUTE_RESOLVER } from "../deployment.js";
+import { contractsFor } from "../deployment.js";
+import { DEFAULT_DEPLOYMENT } from "../deployments.js";
 import { checkPreflight } from "../preflight.js";
 import { readCreateDisputeFacts, readEvidenceFacts } from "../read-preflight.js";
 import { failure, fakeClient, functionNames, success } from "./fake-client.js";
+
+/** The one deployment served today; ticket 04 makes the double take one. */
+const contracts = contractsFor(DEFAULT_DEPLOYMENT);
 
 /**
  * The read half of pre-flight — `spec/01 §8`, `spec/03 §8`.
@@ -26,11 +30,22 @@ const HEALTHY = () => [
 describe("reading the create-dispute facts", () => {
   it("reads all four in one batch, and reads isSupported every time", async () => {
     const client = fakeClient({ multicall: HEALTHY });
-    const result = await readCreateDisputeFacts({ client, courtID: 1n, disputeKitID: 1n });
+    const result = await readCreateDisputeFacts({
+      client,
+      contracts,
+      courtID: 1n,
+      disputeKitID: 1n,
+    });
 
     expect(result).toEqual({
       success: true,
-      data: { courtExists: true, disputeKitsLength: 5n, courtDisabled: false, kitSupported: true },
+      data: {
+        deployment: DEFAULT_DEPLOYMENT.slug,
+        courtExists: true,
+        disputeKitsLength: 5n,
+        courtDisabled: false,
+        kitSupported: true,
+      },
     });
     expect(client.calls).toHaveLength(1);
     expect(functionNames(client.calls[0])).toEqual([
@@ -45,7 +60,12 @@ describe("reading the create-dispute facts", () => {
     const client = fakeClient({
       multicall: () => [success(5n), failure(), failure(), success(false)],
     });
-    const result = await readCreateDisputeFacts({ client, courtID: 99n, disputeKitID: 1n });
+    const result = await readCreateDisputeFacts({
+      client,
+      contracts,
+      courtID: 99n,
+      disputeKitID: 1n,
+    });
 
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -64,7 +84,12 @@ describe("reading the create-dispute facts", () => {
         success(true),
       ],
     });
-    const result = await readCreateDisputeFacts({ client, courtID: 2n, disputeKitID: 1n });
+    const result = await readCreateDisputeFacts({
+      client,
+      contracts,
+      courtID: 2n,
+      disputeKitID: 1n,
+    });
     expect(result.success && result.data.courtDisabled).toBe(true);
   });
 
@@ -77,7 +102,12 @@ describe("reading the create-dispute facts", () => {
         failure(),
       ],
     });
-    const result = await readCreateDisputeFacts({ client, courtID: 1n, disputeKitID: 4n });
+    const result = await readCreateDisputeFacts({
+      client,
+      contracts,
+      courtID: 1n,
+      disputeKitID: 4n,
+    });
     expect(result.success && result.data.kitSupported).toBeUndefined();
   });
 
@@ -91,6 +121,7 @@ describe("reading the create-dispute facts", () => {
     const client = fakeClient({ multicall: () => [success(5n)] });
     const result = await readCreateDisputeFacts({
       client,
+      contracts,
       courtID: 2n ** 96n,
       disputeKitID: 1n,
     });
@@ -115,7 +146,12 @@ describe("reading the create-dispute facts", () => {
         success(true),
       ],
     });
-    const result = await readCreateDisputeFacts({ client, courtID: 1n, disputeKitID: 1n });
+    const result = await readCreateDisputeFacts({
+      client,
+      contracts,
+      courtID: 1n,
+      disputeKitID: 1n,
+    });
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.code).toBe("RPC_ERROR");
@@ -127,7 +163,12 @@ describe("reading the create-dispute facts", () => {
         throw new Error("fetch failed");
       },
     });
-    const result = await readCreateDisputeFacts({ client, courtID: 1n, disputeKitID: 1n });
+    const result = await readCreateDisputeFacts({
+      client,
+      contracts,
+      courtID: 1n,
+      disputeKitID: 1n,
+    });
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.code).toBe("RPC_ERROR");
@@ -154,14 +195,15 @@ describe("reading the evidence facts", () => {
       multicall: (contracts) =>
         contracts[0]?.functionName === "disputes" ? [dispute(), success(215n)] : [times],
     });
-    const result = await readEvidenceFacts({ client, coreDisputeID: 216n });
+    const result = await readEvidenceFacts({ client, contracts, coreDisputeID: 216n });
 
     expect(result).toEqual({
       success: true,
       data: {
         coreDisputeID: 216n,
         courtID: 1n,
-        arbitrable: DISPUTE_RESOLVER.address,
+        arbitrable: contracts.disputeResolver.address,
+        disputeResolver: contracts.disputeResolver.address,
         localDisputeID: 215n,
         periodIndex: 0,
         ruled: false,
@@ -184,7 +226,7 @@ describe("reading the evidence facts", () => {
    */
   it("refuses a dispute ID KlerosCore cannot resolve, and names unreachability", async () => {
     const client = fakeClient({ multicall: () => [failure(), success(0n)] });
-    const result = await readEvidenceFacts({ client, coreDisputeID: 999_999n });
+    const result = await readEvidenceFacts({ client, contracts, coreDisputeID: 999_999n });
 
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -207,7 +249,7 @@ describe("reading the evidence facts", () => {
       multicall: (contracts) =>
         contracts[0]?.functionName === "disputes" ? [dispute(), success(33n)] : [times],
     });
-    const result = await readEvidenceFacts({ client, coreDisputeID: 58n });
+    const result = await readEvidenceFacts({ client, contracts, coreDisputeID: 58n });
 
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -230,7 +272,7 @@ describe("reading the evidence facts", () => {
           ? [success([1n, foreign, 0, false, 1_000n]), success(0n)]
           : [times],
     });
-    const result = await readEvidenceFacts({ client, coreDisputeID: 98n });
+    const result = await readEvidenceFacts({ client, contracts, coreDisputeID: 98n });
 
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -248,7 +290,7 @@ describe("reading the evidence facts", () => {
       multicall: (contracts) =>
         contracts[0]?.functionName === "disputes" ? [dispute(), failure()] : [times],
     });
-    const result = await readEvidenceFacts({ client, coreDisputeID: 216n });
+    const result = await readEvidenceFacts({ client, contracts, coreDisputeID: 216n });
 
     expect(result.success).toBe(false);
     if (result.success) return;
@@ -258,7 +300,7 @@ describe("reading the evidence facts", () => {
 
   it("refuses a dispute ID too large to be one", async () => {
     const client = fakeClient({ multicall: () => [] });
-    const result = await readEvidenceFacts({ client, coreDisputeID: 2n ** 256n });
+    const result = await readEvidenceFacts({ client, contracts, coreDisputeID: 2n ** 256n });
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.code).toBe("DISPUTE_NOT_FOUND");
@@ -275,7 +317,7 @@ describe("reading the evidence facts", () => {
       multicall: (contracts) =>
         contracts[0]?.functionName === "disputes" ? [dispute(), success(215n)] : [failure()],
     });
-    const result = await readEvidenceFacts({ client, coreDisputeID: 216n });
+    const result = await readEvidenceFacts({ client, contracts, coreDisputeID: 216n });
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.code).toBe("RPC_ERROR");
@@ -290,7 +332,12 @@ describe("reading the evidence facts", () => {
 describe("the read layer feeds the pure judge directly", () => {
   it("passes X1 end to end", async () => {
     const client = fakeClient({ multicall: HEALTHY });
-    const facts = await readCreateDisputeFacts({ client, courtID: 1n, disputeKitID: 1n });
+    const facts = await readCreateDisputeFacts({
+      client,
+      contracts,
+      courtID: 1n,
+      disputeKitID: 1n,
+    });
     expect(facts.success).toBe(true);
     if (!facts.success) return;
 
@@ -311,7 +358,12 @@ describe("the read layer feeds the pure judge directly", () => {
     const client = fakeClient({
       multicall: () => [success(5n), failure(), failure(), success(false)],
     });
-    const facts = await readCreateDisputeFacts({ client, courtID: 99n, disputeKitID: 1n });
+    const facts = await readCreateDisputeFacts({
+      client,
+      contracts,
+      courtID: 99n,
+      disputeKitID: 1n,
+    });
     expect(facts.success).toBe(true);
     if (!facts.success) return;
 

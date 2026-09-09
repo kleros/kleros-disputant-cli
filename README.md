@@ -129,6 +129,8 @@ kleros-disputant arbitration-cost --court 1 --jurors 3
 {
   "ok": true,
   "command": "arbitration-cost",
+  "deployment": "arbitrum-one",
+  "chainId": 42161,
   "requested": { "court": "1", "jurors": "3", "disputeKit": "1" },
   "extraData": "0x00…0001",
   "arbitrationCost": { "wei": "15000000000000000", "eth": "0.015" },
@@ -245,12 +247,12 @@ often a `cta` naming the next command to run:
 ```json
 {
   "code": "INSUFFICIENT_BALANCE",
-  "message": "The account holds 0 ETH and the arbitration fee alone is 0.015 ETH, before any gas. Nothing was sent.",
+  "message": "The account holds 0 ETH and the arbitration fee alone is 0.015 ETH, before any gas. Nothing was sent. Deployment: arbitrum-one (chain 42161).",
   "cta": {
     "description": "The arbitration fee is paid on creation and cannot be recovered.",
     "commands": [
       {
-        "command": "kleros-disputant arbitration-cost --court 1 --jurors 3 --kit 1",
+        "command": "kleros-disputant arbitration-cost --chain arbitrum-one --court 1 --jurors 3 --kit 1",
         "description": "Quote the fee without committing to it"
       }
     ]
@@ -283,7 +285,11 @@ These are enforced in code, not left to the caller:
   `--max-cost-eth` is enforced locally the moment the quote arrives, before anything is simulated.
 - **Simulate first, always.** Every state-changing call is simulated, and nothing is broadcast
   without `--broadcast` ([ADR-0004](docs/adr/0004-broadcast-is-opt-in-no-human-gate.md)).
-- **Chain 42161 only**, asserted as a live `eth_chainId` check before any address is even looked up.
+- **One deployment served**, `arbitrum-one` (v2 Beta, chain 42161), selected by `--chain` and the
+  default. A slug this tool does not serve is refused before anything is contacted. The chain ID is
+  asserted with a live `eth_chainId` call against that deployment's own expected value, and **no
+  contract call is made before it** — resolving an address is local, using one on an unverified
+  chain is the hazard ([ADR-0015](docs/adr/0015-a-deployment-is-not-a-chain.md)).
 - **Fees are paid in ETH.** The ERC-20 path is unresolved, so there is no `--fee-token` flag: the
   broken path cannot be asked for
   ([ADR-0008](docs/adr/0008-arbitration-fees-are-paid-in-eth-only.md)).

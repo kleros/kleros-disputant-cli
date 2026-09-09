@@ -17,6 +17,14 @@
  */
 export type ErrorCode =
   // Startup — `spec/03 §7`, in the order that section fixes.
+  //
+  // The caller named a deployment this tool does not serve. An **input**
+  // condition, refused at step 1 before anything is contacted — distinct from
+  // WRONG_CHAIN, which is a runtime condition found mid-flight when an endpoint
+  // answers a chain ID the selected deployment does not expect. Collapsing the
+  // two would tell a caller who mistyped a slug to check their endpoint.
+  // `@kleros/agentkit` uses this same code, so one branch covers both tools.
+  | "CHAIN_NOT_SUPPORTED"
   | "WRONG_CHAIN"
   | "DEPLOYMENT_INCONSISTENT"
   // The RPC did not answer. Distinct from every refusal above: nothing was

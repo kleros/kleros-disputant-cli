@@ -39,7 +39,7 @@ export type QuoteAssessment = {
  * adds ETH. The account sends its own transactions; there is no relayer
  * (`spec/03 §5.4`).
  */
-const FUND_HINT = "Fund the signing account with ETH on Arbitrum One.";
+const FUND_HINT = "Fund the signing account with ETH on the selected deployment's chain.";
 
 /**
  * The ceiling is an operator input with a conservative default, and it is

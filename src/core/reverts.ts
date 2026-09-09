@@ -6,7 +6,8 @@ import {
   slice,
   toFunctionSelector,
 } from "viem";
-import { DISPUTE_RESOLVER_ABI, EVIDENCE_MODULE_ABI, KLEROS_CORE_ABI } from "./deployment.js";
+import { contractsFor } from "./deployment.js";
+import { DEPLOYMENT_SLUGS, DEPLOYMENTS } from "./deployments.js";
 
 /**
  * Revert decoding — `spec/01 §5`, verified by `spec/05 §2.6`.
@@ -45,15 +46,32 @@ type AbiErrorEntry = { type: string; name?: string; inputs?: readonly { type: st
 
 /**
  * Selector → error name, over `klerosCoreAbi`, `disputeResolverAbi` and
- * `evidenceModuleAbi` at once. The union is the point: the selector on the wire
- * comes from whichever contract in the call stack reverted, not from the one
- * that was called.
+ * `evidenceModuleAbi` **of every deployment this tool serves**, at once. The
+ * union is the point: the selector on the wire comes from whichever contract in
+ * the call stack reverted, not from the one that was called.
+ *
+ * Spanning deployments as well as contracts is what keeps this module free of a
+ * deployment argument. Decoding is a **lookup**, not a decision: a selector
+ * present on one deployment and absent on another still names the same error
+ * wherever it appears, and naming it can only improve a message. Threading a
+ * deployment down to `decodeRevert` — through `broadcast.ts`, which has no other
+ * reason to know one — would buy nothing but the ability to refuse to name an
+ * error we can name.
  *
  * Names shared across ABIs (`AlreadyInitialized`, the UUPS pair) carry the same
  * selector by construction, so the merge cannot disagree with itself.
  */
+const SERVED_ABIS = DEPLOYMENT_SLUGS.flatMap((slug) => {
+  const contracts = contractsFor(DEPLOYMENTS[slug]);
+  return [
+    contracts.klerosCore.abi,
+    contracts.disputeResolver.abi,
+    contracts.evidenceModule.abi,
+  ] as readonly (readonly unknown[])[];
+});
+
 export const ERROR_SELECTORS: ReadonlyMap<string, string> = new Map(
-  [KLEROS_CORE_ABI, DISPUTE_RESOLVER_ABI, EVIDENCE_MODULE_ABI].flatMap((abi) =>
+  SERVED_ABIS.flatMap((abi) =>
     (abi as readonly AbiErrorEntry[])
       .filter((entry): entry is AbiErrorEntry & { name: string } =>
         Boolean(entry.type === "error" && entry.name),

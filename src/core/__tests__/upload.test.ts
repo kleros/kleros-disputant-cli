@@ -371,9 +371,14 @@ describe("the command — spec/06 §1, §7", () => {
     const command = cta?.commands[0]?.command ?? "";
     expect(command).toContain("--file-uri /ipfs/QmAbc");
     expect(command).toContain("--file-type-extension pdf");
-    // The dispute is the one thing this command cannot know, so it stays a
-    // placeholder rather than being invented (`spec/03 §5.4`).
+    // The dispute and the deployment are the two things this command cannot
+    // know, so both stay placeholders rather than being invented
+    // (`spec/03 §5.4`). `--chain` deliberately does **not** fall back to the
+    // default here: `upload-file` touches no chain, so guessing one would be
+    // the silent redirection the "every CTA carries --chain" rule exists to
+    // prevent (ADR-0015).
     expect(command).toContain("--dispute <id>");
+    expect(command).toContain("--chain <slug>");
   });
 
   it("offers no CTA for a check, because nothing was published to pass on", async () => {

@@ -1,7 +1,11 @@
 import { ContractFunctionRevertedError, encodeAbiParameters, encodeErrorResult } from "viem";
 import { describe, expect, it } from "vitest";
-import { DISPUTE_RESOLVER_ABI, KLEROS_CORE_ABI } from "../deployment.js";
+import { contractsFor } from "../deployment.js";
+import { DEFAULT_DEPLOYMENT } from "../deployments.js";
 import { decodeRevert, ERROR_SELECTORS } from "../reverts.js";
+
+/** The one deployment served today; ticket 04 makes the double take one. */
+const contracts = contractsFor(DEFAULT_DEPLOYMENT);
 
 /**
  * `spec/01 §5` — and the trap it names: `DisputeResolver` declares zero custom
@@ -12,7 +16,7 @@ import { decodeRevert, ERROR_SELECTORS } from "../reverts.js";
  */
 
 /** As viem builds it inside `simulateContract`, with the call target's ABI. */
-const reverted = (data: `0x${string}`, abi: readonly unknown[] = DISPUTE_RESOLVER_ABI) =>
+const reverted = (data: `0x${string}`, abi: readonly unknown[] = contracts.disputeResolver.abi) =>
   new ContractFunctionRevertedError({
     abi: abi as never,
     data,
@@ -49,7 +53,7 @@ describe("the selector table", () => {
   });
 
   it("is built from the ABIs rather than hand-copied", () => {
-    const declared = (KLEROS_CORE_ABI as readonly { type: string }[]).filter(
+    const declared = (contracts.klerosCore.abi as readonly { type: string }[]).filter(
       (e) => e.type === "error",
     ).length;
     expect(ERROR_SELECTORS.size).toBeGreaterThanOrEqual(declared);
@@ -77,7 +81,7 @@ describe("decoding a revert", () => {
   });
 
   it("names the whitelist refusal an EOA gets from the core directly", () => {
-    const result = decodeRevert(reverted("0x203b0c18", KLEROS_CORE_ABI));
+    const result = decodeRevert(reverted("0x203b0c18", contracts.klerosCore.abi));
     expect(result.reason).toBe("ArbitrableNotWhitelisted");
     expect(result.guidance).toContain("never one");
   });

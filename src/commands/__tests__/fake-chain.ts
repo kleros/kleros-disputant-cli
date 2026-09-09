@@ -8,15 +8,14 @@ import {
   toFunctionSelector,
   toHex,
 } from "viem";
-import {
-  DISPUTE_RESOLVER,
-  DISPUTE_RESOLVER_ABI,
-  DISPUTE_TEMPLATE_REGISTRY,
-  EVIDENCE_MODULE,
-  EVIDENCE_MODULE_ABI,
-  KLEROS_CORE,
-  KLEROS_CORE_ABI,
-} from "../../core/deployment.js";
+import { contractsFor } from "../../core/deployment.js";
+import { DEFAULT_DEPLOYMENT } from "../../core/deployments.js";
+
+/**
+ * The deployment this double answers as. It is the default one today; ticket 04
+ * makes it a parameter so the same double can answer as either.
+ */
+const deployed = contractsFor(DEFAULT_DEPLOYMENT);
 
 /**
  * An in-process Arbitrum One, answering from the **real ABIs**.
@@ -105,15 +104,23 @@ export async function startFakeChain(options: FakeChainOptions = {}): Promise<Fa
 
   const contracts: { contract: Contract; answers: Answers }[] = [
     {
-      contract: indexAbi("KlerosCore", KLEROS_CORE.address, KLEROS_CORE_ABI),
+      contract: indexAbi("KlerosCore", deployed.klerosCore.address, deployed.klerosCore.abi),
       answers: options.core ?? {},
     },
     {
-      contract: indexAbi("DisputeResolver", DISPUTE_RESOLVER.address, DISPUTE_RESOLVER_ABI),
+      contract: indexAbi(
+        "DisputeResolver",
+        deployed.disputeResolver.address,
+        deployed.disputeResolver.abi,
+      ),
       answers: options.resolver ?? {},
     },
     {
-      contract: indexAbi("EvidenceModule", EVIDENCE_MODULE.address, EVIDENCE_MODULE_ABI),
+      contract: indexAbi(
+        "EvidenceModule",
+        deployed.evidenceModule.address,
+        deployed.evidenceModule.abi,
+      ),
       answers: options.evidenceModule ?? {},
     },
   ];
@@ -291,8 +298,8 @@ export function healthyDeployment(): { core: Answers; resolver: Answers; evidenc
   return {
     core: { version: () => "0.10.0" },
     resolver: {
-      arbitrator: () => KLEROS_CORE.address,
-      templateRegistry: () => DISPUTE_TEMPLATE_REGISTRY.address,
+      arbitrator: () => deployed.klerosCore.address,
+      templateRegistry: () => deployed.disputeTemplateRegistry.address,
       // Arbitrum One's own default: the resolver created every dispute there, so
       // core and local coincide for all of them (`spec/01 §7`). Override it to
       // get the divergence production cannot show.

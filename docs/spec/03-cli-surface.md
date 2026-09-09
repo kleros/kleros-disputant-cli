@@ -59,10 +59,28 @@ index: `c.options["rpc-url"]`.
 
 | Option | Type | Applies to | Notes |
 | --- | --- | --- | --- |
-| `--rpc-url` | string | all | Arbitrum One. The chain assertion runs against whatever it points at |
+| `--chain` | string | all but `upload-file` | Alias `-c`. Selects a **deployment**, defaulting to `arbitrum-one` ([ADR-0015](../adr/0015-a-deployment-is-not-a-chain.md)). Declared **per command**, never as a root option |
+| `--rpc-url` | string | all but `upload-file` | An endpoint for the selected deployment's chain. The chain assertion runs against whatever it points at |
 | `--key-file` | string | writes | Path to the signing key. **The key is never accepted from the environment or the command line** |
 | `--broadcast` | boolean | writes | Default `false`. Without it the command stops after simulation |
 | `--max-fee-gwei` | string | writes | Gas fee ceiling, in gwei. It caps `maxFeePerGas` and **not** the arbitration fee, which is not gas |
+
+`--chain` **MUST** be declared on each command rather than as a root or global option. incur's
+global mechanism reaches handlers but is **not** merged into the per-command tool schemas it
+generates for MCP, so a root declaration would be invisible to exactly the caller this CLI is built
+for (verified against incur 0.4.26). Its description carries the **only** gloss pairing each slug
+with its prose name; no other help string, message or CTA repeats it.
+
+**Every envelope MUST echo the resolved deployment slug and the asserted chain ID**, on success and
+on failure, alongside the effective court, juror count and dispute kit. A success carries them as
+`deployment` and `chainId` fields; a failure carries them in the `message`, because the error
+envelope renders nothing else ([ADR-0013](../adr/0013-the-rpc-cause-travels-in-the-hint.md)). Every
+CTA **MUST** carry `--chain`: a continuation command without it re-resolves to the default and would
+answer from a deployment other than the one that refused.
+
+**The environment configures transport, never target.** Each deployment names its own RPC override
+variable, derived by the formula `@kleros/agentkit` uses so one exported variable serves both tools.
+**No environment variable and no configuration file selects the deployment** — only the flag does.
 
 **The option set above is closed**, and the receipt timeout is the one thing that pays for it.
 There is no `--timeout`: how long to wait before reporting `status: "unknown"` is fixed in
@@ -113,8 +131,8 @@ field — a true refusal with a misleading reason.
 | `--upload-url` | no | Override the endpoint. No environment variable, per [§3.1](#31-shared) |
 | `--verify` | no | Default `true`. `--no-verify` skips the round-trip check — [06 §4.2](./06-attachment-upload.md). Named `verify`, because incur reads a leading `--no-` as its own negation prefix and an option *named* `no-verify` is unreachable |
 
-It takes **none** of `--rpc-url`, `--key-file`, `--broadcast` or `--max-fee-gwei`. There is no
-chain interaction to configure and no key to load.
+It takes **none** of `--chain`, `--rpc-url`, `--key-file`, `--broadcast` or `--max-fee-gwei`. There
+is no chain interaction to configure and no key to load.
 
 ## 4. Exit codes
 
@@ -134,11 +152,12 @@ The map **MUST** be a `Record<ErrorCode, number>` over the error-code union, **n
 default; nothing is broken by it today, and that is exactly why it went unnoticed. An exhaustive
 map makes the next added code a type error.
 
-Five buckets over two dozen codes leaves three placements worth stating, because each one is a
+Five buckets over two dozen codes leaves four placements worth stating, because each one is a
 claim about what the caller still holds:
 
 | Code | Exit | Why not the obvious bucket |
 | --- | --- | --- |
+| `CHAIN_NOT_SUPPORTED` | 1 | A chain-shaped code that is **not** bucket 2. It is an input condition refused before anything is contacted, so nothing about the network was learned. Not 2 |
 | `BROADCAST_FAILED` | 2 | The node refused the signed transaction, so nothing was submitted and nothing reverted. There is no hash to check. Not 3 |
 | `TRANSACTION_REVERTED` | 3 | Mined and reverted: a hash exists and gas was spent. Distinct from `SIMULATION_REVERTED`, where nothing was sent |
 | `EFFECTIVE_MISMATCH` | 3 | Not a revert, but the only bucket that does not imply nothing was sent. Reading it as validation would tell a caller the money is still theirs |
@@ -264,6 +283,7 @@ specification and **MUST NOT** be renamed.
 
 | Code | Raised when |
 | --- | --- |
+| `CHAIN_NOT_SUPPORTED` | `--chain` named a deployment this tool does not serve. Refused at [§7](#7-startup-checks) step 1, **before any network contact**. Shared with `@kleros/agentkit`, so one branch covers both tools |
 | `WRONG_CHAIN` | `eth_chainId` is not the selected deployment's expected chain ID |
 | `COURT_OUT_OF_RANGE` | `--court` is `0`, or `getTimesPerPeriod(courtID)` reverts |
 | `COURT_DISABLED` | `courts(courtID).disabled` |

@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { encodeEventTopics, keccak256, toHex } from "viem";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { EXTRA_DATA_VECTORS, TEMPLATE_T1 } from "../../core/__tests__/vectors.js";
-import { DISPUTE_RESOLVER, KLEROS_CORE, KLEROS_CORE_ABI } from "../../core/deployment.js";
+import { contractsFor } from "../../core/deployment.js";
+import { DEFAULT_DEPLOYMENT } from "../../core/deployments.js";
 import { runArbitrationCost, runStatus } from "../read.js";
 import { runCreateDispute, runSubmitEvidence, unknownOutcomeMessage } from "../write.js";
 import {
@@ -14,6 +15,9 @@ import {
   REVERT,
   startFakeChain,
 } from "./fake-chain.js";
+
+/** The one deployment served today; ticket 04 makes the double take one. */
+const contracts = contractsFor(DEFAULT_DEPLOYMENT);
 
 /**
  * The four commands, end to end against an in-process chain — `spec/05 §1.7`.
@@ -187,10 +191,163 @@ describe("arbitration-cost", () => {
   });
 });
 
+/**
+ * `--chain` — `spec/03 §7` step 1, `ADR-0015`.
+ *
+ * The refusal is asserted through a command rather than through
+ * `resolveDeployment`, because the property that matters is not "the function
+ * returns an error" but **that nothing was contacted**: the in-process node
+ * records every JSON-RPC method it is asked, so an empty list is the assertion.
+ */
+describe("--chain", () => {
+  it.each(["arbitrum-sepolia", "arbitrum-sepolia-devnet", "nonsense"])(
+    "refuses %s before a single round trip",
+    async (slug) => {
+      const node = await chain();
+      const result = await runArbitrationCost({
+        chain: slug,
+        rpcUrl: node.url,
+        court: "1",
+        jurors: "3",
+        kit: "1",
+      });
+
+      expect(result.success === false && result.code).toBe("CHAIN_NOT_SUPPORTED");
+      expect(node.methods).toEqual([]);
+    },
+  );
+
+  /**
+   * The refusal must come before the key file is opened as well. A caller who
+   * named a deployment this tool does not serve should be told that, not that
+   * their key is unreadable — and a signing command that reached the key first
+   * would report the wrong one of the two.
+   */
+  it("refuses an unserved slug ahead of the signer, on a command that signs", async () => {
+    const node = await chain();
+    const result = await runCreateDispute({
+      chain: "arbitrum-sepolia-devnet",
+      rpcUrl: node.url,
+      keyFile: join(dir, "no-such-key"),
+      requireSigner: true,
+      court: "1",
+      jurors: "3",
+      kit: "1",
+      templateFile,
+      maxCostEth: "1",
+      broadcast: false,
+    });
+
+    expect(result.success === false && result.code).toBe("CHAIN_NOT_SUPPORTED");
+    expect(node.methods).toEqual([]);
+  });
+
+  /** Every invocation written before the flag existed still means what it meant. */
+  it("resolves to arbitrum-one when the flag is absent", async () => {
+    const node = await chain();
+    const result = await runArbitrationCost({
+      rpcUrl: node.url,
+      court: "1",
+      jurors: "3",
+      kit: "1",
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.deployment).toBe("arbitrum-one");
+  });
+
+  /**
+   * **The chain ID reported is the one that was asserted, not the one that was
+   * requested** — the same rule that already governs the effective court, juror
+   * count and kit (`spec/02 §1.2`). A caller must never have to infer which
+   * deployment a result came from.
+   */
+  it("echoes the resolved deployment and the asserted chain ID in every success envelope", async () => {
+    // One node answering for all four commands, so the assertion is about the
+    // envelope rather than about four different fixtures.
+    const node = await chain({
+      core: healthyCore({
+        disputes: () => [1n, contracts.disputeResolver.address, 0, false, 1_756_900_000n],
+        currentRuling: () => [0n, false, false],
+      }),
+    });
+    const echo = { deployment: "arbitrum-one", chainId: 42161 };
+
+    const quote = await runArbitrationCost({
+      chain: "arbitrum-one",
+      rpcUrl: node.url,
+      court: "1",
+      jurors: "3",
+      kit: "1",
+    });
+    expect(
+      quote.success && { deployment: quote.data.deployment, chainId: quote.data.chainId },
+    ).toEqual(echo);
+
+    const status = await runStatus({ chain: "arbitrum-one", rpcUrl: node.url, dispute: "216" });
+    expect(
+      status.success && { deployment: status.data.deployment, chainId: status.data.chainId },
+    ).toEqual(echo);
+
+    const created = await runCreateDispute({
+      chain: "arbitrum-one",
+      rpcUrl: node.url,
+      keyFile,
+      requireSigner: true,
+      court: "1",
+      jurors: "3",
+      kit: "1",
+      templateFile,
+      maxCostEth: "1",
+      broadcast: false,
+    });
+    expect(
+      created.success && { deployment: created.data.deployment, chainId: created.data.chainId },
+    ).toEqual(echo);
+
+    const evidence = await runSubmitEvidence({
+      chain: "arbitrum-one",
+      rpcUrl: node.url,
+      keyFile,
+      requireSigner: true,
+      dispute: "216",
+      name: "Delivery photographs",
+      description: "The parcel arrived opened.",
+      broadcast: false,
+    });
+    expect(
+      evidence.success && { deployment: evidence.data.deployment, chainId: evidence.data.chainId },
+    ).toEqual(echo);
+  });
+
+  /**
+   * The hint used to hardcode `--chain arbitrum-one`, which was this bug already
+   * present before the flag existed: a caller refused on one deployment was sent
+   * to look up a court on another.
+   */
+  it("points the court-listing hint at the deployment that refused", async () => {
+    const node = await chain();
+    const result = await runArbitrationCost({
+      chain: "arbitrum-one",
+      rpcUrl: node.url,
+      court: "99",
+      jurors: "3",
+      kit: "1",
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(String((result.details as { hint: string }).hint)).toBe(
+      "kleros court list --chain arbitrum-one",
+    );
+  });
+});
+
 describe("status", () => {
   const disputeAnswers = (period: number, ruled = false): Answers =>
     healthyCore({
-      disputes: () => [1n, DISPUTE_RESOLVER.address, period, ruled, 1_756_900_000n],
+      disputes: () => [1n, contracts.disputeResolver.address, period, ruled, 1_756_900_000n],
       currentRuling: () => [0n, false, false],
     });
 
@@ -395,11 +552,11 @@ describe("create-dispute", () => {
   describe("once it is broadcast", () => {
     /** `DisputeCreation(uint256 indexed, address indexed)`, as the core emits it. */
     const disputeCreationLog = (coreDisputeID: bigint) => ({
-      address: KLEROS_CORE.address,
+      address: contracts.klerosCore.address,
       topics: encodeEventTopics({
-        abi: KLEROS_CORE_ABI,
+        abi: contracts.klerosCore.abi,
         eventName: "DisputeCreation",
-        args: { _disputeID: coreDisputeID, _arbitrable: DISPUTE_RESOLVER.address },
+        args: { _disputeID: coreDisputeID, _arbitrable: contracts.disputeResolver.address },
       }),
       data: "0x",
       blockNumber: toHex(300_000_000n),
@@ -412,7 +569,7 @@ describe("create-dispute", () => {
 
     const mined = (coreDisputeID: bigint, courtID = 1n, jurors = 3n, kitID = 1n) => ({
       core: healthyCore({
-        disputes: () => [courtID, DISPUTE_RESOLVER.address, 0, false, 1_757_000_000n],
+        disputes: () => [courtID, contracts.disputeResolver.address, 0, false, 1_757_000_000n],
         getRoundInfo: () => ({
           disputeKitID: kitID,
           pnkAtStakePerJuror: 0n,
@@ -535,7 +692,7 @@ describe("submit-evidence", () => {
 
   const inEvidencePeriod = (period = 0, ruled = false): Answers =>
     healthyCore({
-      disputes: () => [1n, DISPUTE_RESOLVER.address, period, ruled, 1_756_900_000n],
+      disputes: () => [1n, contracts.disputeResolver.address, period, ruled, 1_756_900_000n],
     });
 
   /**
@@ -680,7 +837,7 @@ describe("submit-evidence", () => {
     let submittedID: bigint | undefined;
     const node = await chain({
       core: healthyCore({
-        disputes: () => [8n, DISPUTE_RESOLVER.address, 0, false, 1_756_900_000n],
+        disputes: () => [8n, contracts.disputeResolver.address, 0, false, 1_756_900_000n],
       }),
       resolver: { arbitratorDisputeIDToLocalID: () => 33n },
       evidenceModule: {

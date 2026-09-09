@@ -1,4 +1,5 @@
 import { quoteWarnings } from "../core/cost.js";
+import { resolveDeployment } from "../core/deployments.js";
 import { formatWeiAsEth, parseBigInt } from "../core/numbers.js";
 import { checkEvidencePreflight, checkExtraData } from "../core/preflight.js";
 import {
@@ -8,7 +9,7 @@ import {
   readEvidenceFacts,
 } from "../core/read-preflight.js";
 import { type KlerosResult, ok } from "../core/result.js";
-import { type PrepareOptions, prepare } from "./shared.js";
+import { deploymentEcho, type PrepareOptions, prepare } from "./shared.js";
 
 /**
  * The two commands that never sign anything — `spec/03 §2`.
@@ -40,6 +41,13 @@ export type ArbitrationCostOptions = Omit<PrepareOptions, "requireSigner" | "key
 export async function runArbitrationCost(
   options: ArbitrationCostOptions,
 ): Promise<KlerosResult<Record<string, unknown>>> {
+  // The slug first, ahead of the other local checks: a caller who named a
+  // deployment this tool does not serve should be told that rather than that
+  // their court ID is not a number (`spec/03 §7` step 1). `prepareLocal`
+  // resolves it again, and the function is pure and total.
+  const deployment = resolveDeployment(options.chain);
+  if (!deployment.success) return deployment;
+
   const requested = parseExtraDataOptions(options);
   if (!requested.success) return requested;
   const { courtID, jurors, disputeKitID } = requested.data;
@@ -49,6 +57,7 @@ export async function runArbitrationCost(
 
   const facts = await readCreateDisputeFacts({
     client: prepared.data.client,
+    contracts: prepared.data.contracts,
     courtID,
     disputeKitID,
   });
@@ -59,6 +68,7 @@ export async function runArbitrationCost(
 
   const quote = await quoteArbitrationCost({
     client: prepared.data.client,
+    contracts: prepared.data.contracts,
     extraData: words.data.extraData,
   });
   if (!quote.success) return quote;
@@ -67,6 +77,7 @@ export async function runArbitrationCost(
   return ok({
     ok: true,
     command: "arbitration-cost",
+    ...deploymentEcho(prepared.data),
     requested: {
       court: courtID.toString(),
       jurors: jurors.toString(),
@@ -102,6 +113,9 @@ export type StatusOptions = Omit<PrepareOptions, "requireSigner" | "keyFile"> & 
 export async function runStatus(
   options: StatusOptions,
 ): Promise<KlerosResult<Record<string, unknown>>> {
+  const deployment = resolveDeployment(options.chain);
+  if (!deployment.success) return deployment;
+
   const coreDisputeID = parseBigInt(options.dispute, "--dispute");
   if (!coreDisputeID.success) return coreDisputeID;
 
@@ -110,6 +124,7 @@ export async function runStatus(
 
   const facts = await readEvidenceFacts({
     client: prepared.data.client,
+    contracts: prepared.data.contracts,
     coreDisputeID: coreDisputeID.data,
   });
   if (!facts.success) return facts;
@@ -119,6 +134,7 @@ export async function runStatus(
 
   const ruling = await readCurrentRuling({
     client: prepared.data.client,
+    contracts: prepared.data.contracts,
     coreDisputeID: coreDisputeID.data,
   });
   if (!ruling.success) return ruling;
@@ -127,6 +143,7 @@ export async function runStatus(
   return ok({
     ok: true,
     command: "status",
+    ...deploymentEcho(prepared.data),
     coreDisputeID: coreDisputeID.data.toString(),
     court: facts.data.courtID.toString(),
     period,

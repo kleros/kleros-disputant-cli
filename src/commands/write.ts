@@ -2,12 +2,7 @@ import { readFileSync } from "node:fs";
 import type { Abi, Hex } from "viem";
 import { simulateAndMaybeBroadcast } from "../core/broadcast.js";
 import { checkCostCeiling, checkValueAffordable } from "../core/cost.js";
-import {
-  DISPUTE_RESOLVER,
-  DISPUTE_RESOLVER_ABI,
-  EVIDENCE_MODULE,
-  EVIDENCE_MODULE_ABI,
-} from "../core/deployment.js";
+import { resolveDeployment } from "../core/deployments.js";
 import { buildEvidence } from "../core/evidence.js";
 import { formatWeiAsEth, parseBigInt, parseEthToWei, parseGweiToWei } from "../core/numbers.js";
 import {
@@ -27,7 +22,7 @@ import {
 import { err, type KlerosResult, ok } from "../core/result.js";
 import { buildTemplate, NO_DATA_MAPPINGS } from "../core/template.js";
 import { parseExtraDataOptions } from "./read.js";
-import { type PrepareOptions, prepare, RECEIPT_TIMEOUT_MS } from "./shared.js";
+import { deploymentEcho, type PrepareOptions, prepare, RECEIPT_TIMEOUT_MS } from "./shared.js";
 
 /**
  * The two commands that sign — `spec/03 §2`, `spec/04`.
@@ -57,7 +52,15 @@ export async function runCreateDispute(
   options: CreateDisputeOptions,
 ): Promise<KlerosResult<Record<string, unknown>>> {
   // Everything local first, so a typo costs no round trip and reveals nothing
-  // about an intent to send.
+  // about an intent to send — and **the slug before the rest of it**. It is the
+  // most fundamental input on the line: a caller who named a deployment this
+  // tool does not serve should be told that, not that their template is
+  // malformed, or they fix the template, re-run and only then learn the real
+  // problem. `prepareLocal` resolves it again; the function is pure and total,
+  // so the two cannot disagree (`spec/03 §7` step 1).
+  const deployment = resolveDeployment(options.chain);
+  if (!deployment.success) return deployment;
+
   const requested = parseExtraDataOptions(options);
   if (!requested.success) return requested;
   const { courtID, jurors, disputeKitID } = requested.data;
@@ -86,9 +89,9 @@ export async function runCreateDispute(
 
   const prepared = await prepare({ ...options, requireSigner: true });
   if (!prepared.success) return prepared;
-  const { client, account } = prepared.data;
+  const { client, account, contracts } = prepared.data;
 
-  const facts = await readCreateDisputeFacts({ client, courtID, disputeKitID });
+  const facts = await readCreateDisputeFacts({ client, contracts, courtID, disputeKitID });
   if (!facts.success) return facts;
 
   // The only thing standing between a typo and a paid dispute in the wrong
@@ -103,7 +106,7 @@ export async function runCreateDispute(
 
   // After pre-flight passes and before simulating, with the byte-identical blob
   // that is about to be sent (`spec/04 §4`).
-  const quote = await quoteArbitrationCost({ client, extraData });
+  const quote = await quoteArbitrationCost({ client, contracts, extraData });
   if (!quote.success) return quote;
 
   // Before simulating, so a refusal costs nothing and reveals nothing.
@@ -123,7 +126,10 @@ export async function runCreateDispute(
   const outcome = await simulateAndMaybeBroadcast({
     client,
     account,
-    target: { address: DISPUTE_RESOLVER.address, abi: DISPUTE_RESOLVER_ABI as Abi },
+    target: {
+      address: contracts.disputeResolver.address,
+      abi: contracts.disputeResolver.abi as Abi,
+    },
     call: {
       functionName: "createDisputeForTemplate",
       args: [extraData, template.data.json, NO_DATA_MAPPINGS, numberOfRulingOptions],
@@ -136,12 +142,14 @@ export async function runCreateDispute(
     balanceWei: balanceWei.data,
     ...(maxFeePerGas.data !== undefined ? { maxFeePerGas: maxFeePerGas.data } : {}),
     rpcUrls: prepared.data.rpcUrls,
+    deployment: prepared.data.deployment,
   });
   if (!outcome.success) return outcome;
 
   const base = {
     ok: true,
     command: "create-dispute",
+    ...deploymentEcho(prepared.data),
     status: outcome.data.status,
     broadcast: outcome.data.broadcast,
     requested: {
@@ -192,10 +200,18 @@ export async function runCreateDispute(
   // from the function's return value. The two agree — verified on a fork where
   // the local index had been driven apart from the core ID — so this is a
   // provenance rule: the log is the arbitrator's own statement (`spec/01 §7`).
-  const coreDisputeID = await readCreatedDisputeID({ client, txHash: outcome.data.txHash });
+  const coreDisputeID = await readCreatedDisputeID({
+    client,
+    contracts,
+    txHash: outcome.data.txHash,
+  });
   if (!coreDisputeID.success) return coreDisputeID;
 
-  const effective = await readEffectiveDispute({ client, coreDisputeID: coreDisputeID.data });
+  const effective = await readEffectiveDispute({
+    client,
+    contracts,
+    coreDisputeID: coreDisputeID.data,
+  });
   if (!effective.success) return effective;
 
   // Read back from chain state, never echoed from the inputs. A difference is an
@@ -242,6 +258,11 @@ export type SubmitEvidenceOptions = PrepareOptions & {
 export async function runSubmitEvidence(
   options: SubmitEvidenceOptions,
 ): Promise<KlerosResult<Record<string, unknown>>> {
+  // The slug before every other local check, for the reason `runCreateDispute`
+  // states: it is the input the rest of them are relative to.
+  const deployment = resolveDeployment(options.chain);
+  if (!deployment.success) return deployment;
+
   const coreDisputeID = parseBigInt(options.dispute, "--dispute");
   if (!coreDisputeID.success) return coreDisputeID;
 
@@ -265,12 +286,12 @@ export async function runSubmitEvidence(
 
   const prepared = await prepare({ ...options, requireSigner: true });
   if (!prepared.success) return prepared;
-  const { client, account } = prepared.data;
+  const { client, account, contracts } = prepared.data;
 
   // The first of the two hard refusals on this path. `submitEvidence` has no
   // access control, no payment and no period gate, and it accepts an ID that does
   // not exist — so the harm is unreachability, not loss (ADR-0011).
-  const facts = await readEvidenceFacts({ client, coreDisputeID: coreDisputeID.data });
+  const facts = await readEvidenceFacts({ client, contracts, coreDisputeID: coreDisputeID.data });
   if (!facts.success) return facts;
 
   // The second hard refusal, and the one that decides which identifier is signed.
@@ -288,14 +309,16 @@ export async function runSubmitEvidence(
   const outcome = await simulateAndMaybeBroadcast({
     client,
     account,
-    target: { address: EVIDENCE_MODULE.address, abi: EVIDENCE_MODULE_ABI as Abi },
+    target: { address: contracts.evidenceModule.address, abi: contracts.evidenceModule.abi as Abi },
     // `_externalDisputeID` is the **local** dispute ID, and that is what is sent
     // — not the core ID the caller passed. The subgraph keys the evidence group
     // on this argument verbatim and the Court client looks it up by the
     // dispute's `externalDisputeId`, so sending the core ID files the document
     // into a group nothing reads wherever the two differ. They coincide for
-    // every dispute on Arbitrum One only because `DisputeResolver` created every
-    // one of them (`spec/01 §7`, `spec/02 §4.2`, ADR-0014).
+    // every dispute on the arbitrum-one deployment only because
+    // `DisputeResolver` created every one of them — a property of that
+    // deployment's history, not of the contracts (`spec/01 §7`, `spec/02 §4.2`,
+    // ADR-0014).
     call: { functionName: "submitEvidence", args: [localDisputeID.data, evidence.data.json] },
     // Not payable. There is no `value` here and adding one would be rejected.
     broadcast: options.broadcast,
@@ -303,12 +326,14 @@ export async function runSubmitEvidence(
     balanceWei: balanceWei.data,
     ...(maxFeePerGas.data !== undefined ? { maxFeePerGas: maxFeePerGas.data } : {}),
     rpcUrls: prepared.data.rpcUrls,
+    deployment: prepared.data.deployment,
   });
   if (!outcome.success) return outcome;
 
   const base = {
     ok: true,
     command: "submit-evidence",
+    ...deploymentEcho(prepared.data),
     status: outcome.data.status,
     broadcast: outcome.data.broadcast,
     coreDisputeID: coreDisputeID.data.toString(),
