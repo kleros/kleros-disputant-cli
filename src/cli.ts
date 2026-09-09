@@ -40,6 +40,23 @@ const cli = Cli.create("kleros-disputant", {
     "Nothing is sent without --broadcast.",
   version: pkg.version,
   format: "json",
+  // `skills add` installs the skills incur generates from these command
+  // definitions. The hand-written `skills/kleros-disputant/SKILL.md` is not one
+  // of them and would ship in the tarball without ever being installed, so name
+  // it here. The pattern is relative to the package root, which is where incur
+  // resolves it from by default. **Do not pass `sync.cwd` to force that**: incur
+  // uses one `cwd` for the include globs *and* for the install destination, so
+  // overriding it sends `skills add --no-global` into this package's own
+  // directory — inside `node_modules` for a real install — instead of the
+  // caller's project. Under `--no-global` the glob misses and the caller gets
+  // the generated skills only, which is the right way to lose this.
+  //
+  // incur parses that file's front matter and swallows any error, so a skill it
+  // cannot parse is skipped in silence rather than reported. A `": "` inside an
+  // unquoted YAML scalar is the easiest way to cause that, because it turns
+  // `description:` into a nested mapping. Check `skills add` lists the skill;
+  // that the file exists proves nothing.
+  sync: { include: ["skills/kleros-disputant"] },
 })
   .command("arbitration-cost", {
     description:

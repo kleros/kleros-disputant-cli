@@ -20,12 +20,12 @@ overturned (`spec/appendix-a §3.5`).
 Status: bootstrapping. `src/core/`, `src/commands/` and the fork tests are complete — the pure
 functional core, the deployment pinned by a fingerprint test, the read layer, the transaction path,
 the five commands on incur, and `spec/05 §2`'s seven fork tests, which **broadcast on a fork** and
-settled three of Appendix A's five unverified claims. `README.md` is written (step 13, out of
-order). `upload-file` was added out of build order on maintainer instruction and **has run against
-the live endpoint**; still no skill, nothing published to npm, **no transaction broadcast on
-Arbitrum One**. Step 13's remainder, the skill, is next — and it now has a fifth command to
-document.
-Build order: `HANDOFF §10`.
+settled three of Appendix A's five unverified claims. The skill (step 12) and `README.md` (step 13)
+are written; `upload-file` was added out of build order on maintainer instruction and **has run
+against the live endpoint**. Nothing published to npm, and **no transaction broadcast on Arbitrum
+One**. The acceptance test (step 14, `spec/05 §3`) is next: `pnpm test:acceptance` still points at a
+file that does not exist.
+Build order: `HANDOFF §10` — where the skill is step 12 and the README step 13, not the reverse.
 
 ```
 pnpm test             # unit + guard tests. A suite whose prerequisite is absent self-skips loudly

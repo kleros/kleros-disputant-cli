@@ -305,8 +305,17 @@ These are enforced in code, not left to the caller:
 
 Every command is self-describing: `--help` for humans, `--llms` / `--llms-full` for a manifest,
 `--schema` for JSON Schema. `incur` also gives the binary a `mcp` group (register it as an MCP
-server) and a `skills` group (sync skill files into an agent). A dedicated agent skill for this
-repo is not written yet — see the roadmap.
+server) and a `skills` group.
+
+```bash
+kleros-disputant skills add      # installs six skills: one per command, plus the hand-written one
+```
+
+`incur` generates a skill per command from the definitions themselves, so the flag tables can never
+drift. [`skills/kleros-disputant/SKILL.md`](skills/kleros-disputant/SKILL.md) is the one written by
+hand and carries what a generator cannot: the order to call things in, what each irreversible step
+costs, and a troubleshooting table keyed on error `code`. It restates no flags, for the same reason
+this file does not.
 
 The framework-free core is importable too, if you would rather build the calls yourself:
 
@@ -366,8 +375,6 @@ agent calls.
 
 ## Roadmap
 
-- [ ] `skills/kleros-disputant/SKILL.md` — the agent skill, with a troubleshooting table keyed on
-      error `code`
 - [ ] The acceptance test — the full lifecycle on a pinned fork, in separate processes
       (`docs/spec/05-verification.md` §3)
 - [ ] First broadcast against Arbitrum One, then the first npm release
