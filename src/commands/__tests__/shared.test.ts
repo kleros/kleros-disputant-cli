@@ -49,6 +49,7 @@ const ALL_CODES = [
   "UPLOAD_FAILED",
   "UPLOAD_MISMATCH",
   "NUMBER_INVALID",
+  "DISPUTE_NOT_ADDRESSABLE",
 ] as const satisfies readonly ErrorCode[];
 
 /** The other direction: every listed code is real, and none is missing. */

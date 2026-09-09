@@ -35,7 +35,8 @@ installed, and this skill cannot install it — the repository's README covers t
 - **No discovery.** It cannot tell you which disputes exist, or which ones concern you. That is
   `@kleros/agentkit`: `kleros dispute get`, `kleros dispute brief`, `kleros dispute policy`,
   `kleros evidence list`, `kleros court get`, `kleros arbitrable classify`. Every read here exists
-  only to refuse a bad write.
+  only to refuse a bad write — or, in one case, to decide what is signed, where the alternative is a
+  write that cannot be read back.
 - **No case construction.** It drafts no claim, invents no ruling option and predicts no ruling.
 - **Chain 42161 only.** Arbitrum One, asserted with a live `eth_chainId` call before any address is
   looked up. Every address it holds is meaningless elsewhere, not merely wrong.
@@ -150,8 +151,11 @@ simulation.
   and checks no period, and a late submission is indexed either way. So period discipline here is
   this CLI's own policy: it **warns and never refuses**. Read `warnings`, and `secondsRemaining` and
   `period` from `status`.
-- The one hard refusal on that path is a core dispute ID no dispute uses. The submission would
-  succeed and then be unreachable by anything that reads the case.
+- The two hard refusals on that path are both unreachability: a core dispute ID no dispute uses, and
+  one whose dispute a **different arbitrable** created. Either submission would succeed and then be
+  unreachable by anything that reads the case. The second is not about who filed the case: every
+  dispute on this deployment routes through the same arbitrable, including one filed from the Kleros
+  Court web client, so all of them are reachable today.
 - A receipt is waited for up to two minutes. That is not configurable, and the wait timing out is
   reported as `unknown` rather than as an error.
 
@@ -186,6 +190,7 @@ or its outcome · `4` signing key.
 | `COST_CEILING_EXCEEDED` | The quote is above `--max-cost-eth`. Raise the ceiling only if that price is intended; the cost is paid on creation and cannot be recovered |
 | `INSUFFICIENT_BALANCE` | The account cannot cover the arbitration cost, or the cost plus estimated gas. Reaches `submit-evidence` too, where the whole shortfall is gas. Fund it with ETH on Arbitrum One — it sends its own transactions and there is no relayer |
 | `DISPUTE_NOT_FOUND` | No dispute uses that ID. `--dispute` takes the core dispute ID, the one Kleros Court shows — not a local or external one |
+| `DISPUTE_NOT_ADDRESSABLE` | The dispute is real, but a different arbitrable created it, and only that contract can say how its evidence is addressed. Retrying will not help; the message names the owner. Not reachable on this deployment today |
 | `FILE_UNREADABLE`, `FILE_EMPTY` | `--file` takes one readable, non-empty regular file. The endpoint pins exactly one file per request |
 | `FILE_TOO_LARGE` | The practical ceiling is around 4.6 MB of file. Split or compress it, and submit one document per file |
 

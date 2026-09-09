@@ -26,7 +26,7 @@ And the escape hatch a default refusal needs makes it worse rather than better. 
 autonomous agent's command line is set once and never reconsidered — it converts a refusal into a
 constant, so the check protects nobody and the false guarantee remains in the documentation.
 
-## The one hard refusal
+## The hard refusals
 
 **A core dispute ID that does not exist.** That is not a policy judgement, it is a correctness
 failure with a silent mode: the transaction succeeds, gas is spent, an event is emitted, and the
@@ -44,6 +44,21 @@ The likely cause is passing an arbitrable-local dispute ID where the core ID bel
 collision `CONTEXT.md` gives three separate glossary entries to. So this refusal earns its place:
 it is chain-detectable, its failure mode is silent, and the mistake it catches is one the domain
 actively invites. Its message should name the confusion rather than only reporting the miss.
+
+**A dispute another arbitrable created**, added 2026-09-09 as `DISPUTE_NOT_ADDRESSABLE`
+([ADR-0014](./0014-evidence-is-filed-under-the-local-dispute-id.md)). The policy above is unchanged
+in substance: its exception has always been unreachability, and this is that case reached by a
+second route. Evidence is grouped by the arbitrable's own dispute ID, only that arbitrable can say
+what a given dispute's is, and so a submission from here would again be filed where nothing reads
+it. It is a **separate code** from the one above, because a not-found ID may be a typo worth
+retrying and this one can never work.
+
+Unlike the first, this one lives on the **write path** rather than in the read layer. `status`
+shares that read and reports a foreign dispute perfectly well; only a command that signs needs a
+local dispute ID, so only a command that signs refuses without one. The Consequences below still
+hold — this adds no round trip, because both reads it needs were already in the first multicall —
+but their inventory of the pre-flight is now: chain assertion, dispute existence, **the arbitrable
+and the core-to-local resolution**, balance for gas, and an advisory period read.
 
 ## What the warning says
 

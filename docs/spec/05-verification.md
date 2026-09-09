@@ -77,6 +77,9 @@ fails the build rather than a transaction. At minimum:
   contains `governor()` and **not** `owner()`. The selector alone is **not** sufficient: the devnet
   deployment renames the parameter to `_arbitratorDisputeID` without changing the signature, so a
   selector-only assertion cannot see the change ([01 §7.1](./01-onchain-reference.md)).
+- `arbitratorDisputeIDToLocalID` is `view`, takes one `uint256` and returns one `uint256`. It
+  decides **which identifier is signed** ([02 §4.2](./02-payload-construction.md)), so its shape
+  belongs here and not only in the read layer's own tests.
 - `DisputeRequest` has **five** arguments.
 - `disputeResolverAbi` contains **zero** custom errors.
 - `klerosCoreAbi` contains `ArbitrableNotWhitelisted`, `ArbitrationFeesNotEnough` and
@@ -86,6 +89,30 @@ fails the build rather than a transaction. At minimum:
   ([01 §8](./01-onchain-reference.md), ADR-0008).
 - The addresses in [01 §1](./01-onchain-reference.md) are what the package resolves for 42161 —
   including both governance override contracts, which are refused by name.
+
+### 1.6a Which dispute identifier is signed
+
+The defect these close was invisible on Arbitrum One, where all three identifiers coincide, so the
+fixtures come from the v2 testnet **[live]** and are stated in
+[ADR-0014](../adr/0014-evidence-is-filed-under-the-local-dispute-id.md).
+
+- **The tests are written against the v2 Beta double, deliberately.** The divergence is reachable on
+  Arbitrum One the day a second arbitrable files there. Placing the fixture on a testnet double
+  would re-encode the belief this work disproves — that the defect is a testnet quirk.
+- A test **MUST** assert that `submitEvidence` receives the **local** dispute ID, using the measured
+  pair: core dispute 58 resolves to local dispute 33. Asserting the envelope is not sufficient; the
+  assertion is on the argument.
+- A test **MUST** assert that the caller is never shown the second identifier — the envelope reports
+  the core dispute ID it was given, and nothing else.
+- A test **MUST** reach `DISPUTE_NOT_ADDRESSABLE` through a double that speaks **JSON-RPC**, so viem
+  builds the request and the node answers from the real ABIs. The fixture is core dispute 98: a
+  foreign arbitrable, and a mapping that answers `0`.
+- A test **MUST** assert that **local dispute ID `0` is accepted**. Zero is a real dispute, not a
+  miss, and this is the assertion that fails if the check is ever written against the raw mapping
+  value instead of the `null` the read layer substitutes.
+- A test **MUST** assert that a mapping read which *fails* is reported as `DEPLOYMENT_INCONSISTENT`
+  and never as a missing local ID. A public mapping getter cannot revert.
+- A test **MUST** assert that both reads share one multicall.
 
 ### 1.7 Output and safety
 
@@ -161,7 +188,11 @@ and three of the five claims in [Appendix A §2](./appendix-a-unresolved.md) wer
    names it: the `Error(string)` from `DisputeResolver`, and each forwarded core selector.
 7. **`submit-evidence` against a non-existent core dispute ID is refused**, and against a dispute
    in the `execution` period **warns and proceeds**. "Proceeds" is asserted by broadcasting: the
-   emitted `Evidence` log must carry E1's bytes verbatim, the dispute ID and the sender.
+   emitted `Evidence` log must carry E1's bytes verbatim, the sender, and the **local** dispute ID
+   read back from `arbitratorDisputeIDToLocalID` — **not** compared against the core ID passed in.
+   The two coincide on this deployment, so an equality assertion against the input would pass
+   whichever identifier the CLI sent, which is how the defect in §1.6a survived
+   ([ADR-0014](../adr/0014-evidence-is-filed-under-the-local-dispute-id.md)).
 
 8. **Not one of the seven, and worth having anyway:** one create emits `DisputeCreation`,
    `DisputeRequest` and `DisputeTemplate` in **one receipt**, from three different contracts. That
@@ -177,7 +208,9 @@ processes**:
 2. `create-dispute` without `--broadcast` returns `status: "simulated"` and sends nothing.
 3. `create-dispute --broadcast` mines, and the reported core dispute ID resolves on chain.
 4. `submit-evidence` against that dispute mines, and the emitted `Evidence` log carries the exact
-   bytes of E1.
+   bytes of E1 **and the local dispute ID read back from `arbitratorDisputeIDToLocalID`** — never
+   the core ID that was passed in. On a pinned Arbitrum One fork the two coincide, so a
+   bytes-only assertion here cannot catch the regression §2.7 names.
 5. `status` reports the dispute in the `evidence` period.
 
 The acceptance test **MUST** assert that no secret reached stdout or stderr, and that nothing was
@@ -234,7 +267,9 @@ cast call $CORE "disputeKits(uint256)(address)" 5 --rpc-url $RPC
 cast call $CORE "arbitrableWhitelist(address)(bool)" $RES --rpc-url $RPC  # expect true
 
 # the ID coincidence: while this returns the same number as KlerosCore's dispute
-# count, core, local and external IDs are indistinguishable in production
+# count, core, local and external IDs are indistinguishable in production.
+# This is why 02 section 4.2's resolution cannot be verified here at all — only
+# on a seeded fork, or on the v2 testnet, where the identifiers have separated.
 cast call $RES "disputes(uint256)(bytes,bool,uint256,uint256)" 215 --rpc-url $RPC
 ```
 

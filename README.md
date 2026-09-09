@@ -289,8 +289,10 @@ These are enforced in code, not left to the caller:
   ([ADR-0008](docs/adr/0008-arbitration-fees-are-paid-in-eth-only.md)).
 - **Late evidence warns; it never refuses.** `submitEvidence` has no period gate on chain, and the
   submission is indexed either way, so refusing would be this CLI inventing a rule the protocol does
-  not have. The one hard refusal is a dispute ID that does not exist
-  ([ADR-0011](docs/adr/0011-evidence-period-pressure-warns-and-never-refuses.md)).
+  not have. The two hard refusals are both unreachability: a dispute ID that does not exist, and a
+  dispute another arbitrable created
+  ([ADR-0011](docs/adr/0011-evidence-period-pressure-warns-and-never-refuses.md),
+  [ADR-0014](docs/adr/0014-evidence-is-filed-under-the-local-dispute-id.md)).
 - **Evidence never enters this process as data.** It is bytes on the way to a transaction: never
   parsed, never interpolated into anything executable, never able to influence which call is made.
   Everything written in a dispute is authored by someone with an interest in the outcome

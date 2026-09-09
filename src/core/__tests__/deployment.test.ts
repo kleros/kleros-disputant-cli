@@ -107,6 +107,18 @@ describe("the write targets still have the shape this tool calls", () => {
     expect(toFunctionSelector("submitEvidence(uint256,string)")).toBe("0xa6a7f0eb");
   });
 
+  /**
+   * The read that decides **which identifier is signed** (`spec/02 §4.2`), so its
+   * shape belongs here rather than only in the read layer's own tests. It is a
+   * public mapping getter: `view`, one `uint256` in, one `uint256` out, and it
+   * returns the zero default rather than reverting for a key it has never seen.
+   */
+  it("arbitratorDisputeIDToLocalID is a view mapping getter", () => {
+    const entry = fn(RESOLVER, "arbitratorDisputeIDToLocalID");
+    expect(signature(entry)).toBe("arbitratorDisputeIDToLocalID(uint256) -> (uint256)");
+    expect(entry.stateMutability).toBe("view");
+  });
+
   it("DisputeRequest still has five arguments", () => {
     const event = RESOLVER.find((e) => e.type === "event" && e.name === "DisputeRequest");
     expect(event?.inputs).toHaveLength(5);

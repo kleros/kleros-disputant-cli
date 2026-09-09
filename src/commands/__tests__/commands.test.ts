@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { encodeEventTopics, keccak256, toHex } from "viem";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { EXTRA_DATA_VECTORS, TEMPLATE_T1 } from "../../core/__tests__/vectors.js";
-import { KLEROS_CORE, KLEROS_CORE_ABI } from "../../core/deployment.js";
+import { DISPUTE_RESOLVER, KLEROS_CORE, KLEROS_CORE_ABI } from "../../core/deployment.js";
 import { runArbitrationCost, runStatus } from "../read.js";
 import { runCreateDispute, runSubmitEvidence, unknownOutcomeMessage } from "../write.js";
 import {
@@ -190,9 +190,38 @@ describe("arbitration-cost", () => {
 describe("status", () => {
   const disputeAnswers = (period: number, ruled = false): Answers =>
     healthyCore({
-      disputes: () => [1n, KLEROS_CORE.address, period, ruled, 1_756_900_000n],
+      disputes: () => [1n, DISPUTE_RESOLVER.address, period, ruled, 1_756_900_000n],
       currentRuling: () => [0n, false, false],
     });
+
+  /**
+   * The reason `checkEvidenceAddressable` is on the write path and not in the
+   * read layer both commands share (ADR-0014). `status` reads a dispute another
+   * arbitrable created perfectly well, and **must not** refuse it — the read is
+   * correct, and only a command that signs needs a local dispute ID.
+   *
+   * This coverage existed by accident until 2026-09-09, when every fixture named
+   * KlerosCore as its own arbitrable. Making the fixtures realistic removed it,
+   * so it is asserted deliberately here instead.
+   */
+  it("reports a dispute another arbitrable created, rather than refusing it", async () => {
+    const foreign = "0xDfa9E40FcBf4f37aa09996eAF39962742299B7Bc" as const;
+    const node = await chain({
+      core: healthyCore({
+        disputes: () => [1n, foreign, 0, false, 1_756_900_000n],
+        currentRuling: () => [0n, false, false],
+      }),
+      resolver: { arbitratorDisputeIDToLocalID: () => 0n },
+    });
+    const result = await runStatus({ rpcUrl: node.url, dispute: "98" });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.period).toBe("evidence");
+    expect(result.data.coreDisputeID).toBe("98");
+    // And it still says nothing about an identifier it did not resolve.
+    expect(Object.keys(result.data)).not.toContain("localDisputeID");
+  });
 
   it("reports the period, the court and an upper bound on what is left", async () => {
     const node = await chain({ core: disputeAnswers(0) });
@@ -370,7 +399,7 @@ describe("create-dispute", () => {
       topics: encodeEventTopics({
         abi: KLEROS_CORE_ABI,
         eventName: "DisputeCreation",
-        args: { _disputeID: coreDisputeID, _arbitrable: KLEROS_CORE.address },
+        args: { _disputeID: coreDisputeID, _arbitrable: DISPUTE_RESOLVER.address },
       }),
       data: "0x",
       blockNumber: toHex(300_000_000n),
@@ -383,7 +412,7 @@ describe("create-dispute", () => {
 
     const mined = (coreDisputeID: bigint, courtID = 1n, jurors = 3n, kitID = 1n) => ({
       core: healthyCore({
-        disputes: () => [courtID, KLEROS_CORE.address, 0, false, 1_757_000_000n],
+        disputes: () => [courtID, DISPUTE_RESOLVER.address, 0, false, 1_757_000_000n],
         getRoundInfo: () => ({
           disputeKitID: kitID,
           pnkAtStakePerJuror: 0n,
@@ -506,7 +535,7 @@ describe("submit-evidence", () => {
 
   const inEvidencePeriod = (period = 0, ruled = false): Answers =>
     healthyCore({
-      disputes: () => [1n, KLEROS_CORE.address, period, ruled, 1_756_900_000n],
+      disputes: () => [1n, DISPUTE_RESOLVER.address, period, ruled, 1_756_900_000n],
     });
 
   /**
@@ -632,5 +661,76 @@ describe("submit-evidence", () => {
     expect(keccak256(toHex(submitted ?? ""))).toBe(
       "0x8314e0c856eabbffdbad22ed6112133b586b998cc2d10cbdb8bbf71d32137cca",
     );
+  });
+
+  /**
+   * `spec/02 §4.2` — which identifier reaches the chain.
+   *
+   * Deliberately against the **v2 Beta** double, not the testnet one. The
+   * divergence is reachable on Arbitrum One the day a second arbitrable files
+   * there; putting the fixture on a testnet double would re-encode the belief
+   * this work disproves, that the defect is a testnet quirk (ADR-0014).
+   *
+   * The fixture is the measured pair **[live]**: core dispute 58 is the
+   * resolver's local dispute 33. Verified on the v2 testnet subgraph the same
+   * way — of 47 evidence groups, every id lies in the local range 4..76 and none
+   * in the core-only range 77..126, so the core ID names a group nothing reads.
+   */
+  it("submits the local dispute ID, not the core ID the caller passed", async () => {
+    let submittedID: bigint | undefined;
+    const node = await chain({
+      core: healthyCore({
+        disputes: () => [8n, DISPUTE_RESOLVER.address, 0, false, 1_756_900_000n],
+      }),
+      resolver: { arbitratorDisputeIDToLocalID: () => 33n },
+      evidenceModule: {
+        submitEvidence: ([id]) => {
+          submittedID = id as bigint;
+          return [];
+        },
+      },
+    });
+
+    const result = await runSubmitEvidence({ ...base(), dispute: "58", rpcUrl: node.url });
+
+    expect(result.success).toBe(true);
+    expect(submittedID).toBe(33n);
+    // The caller passed the core ID and is told about the core ID; the second
+    // identifier is resolved, used, and never surfaced.
+    if (!result.success) return;
+    expect(result.data.coreDisputeID).toBe("58");
+    // `spec/05 §1.6a`: the core dispute ID "and nothing else". Key-wise rather
+    // than a substring search — "33" can appear inside a byte count or a gas
+    // figure, and a leak assertion that fails for that reason says the wrong
+    // thing.
+    expect(Object.keys(result.data)).not.toContain("localDisputeID");
+    expect(Object.keys(result.data)).not.toContain("externalDisputeID");
+  });
+
+  /**
+   * The refusal reached through the JSON-RPC double, as `spec/05 §1.5` requires
+   * of a refusal this load-bearing: viem builds the request and the node answers
+   * from the real ABIs, so nothing here can agree with a decoding mistake.
+   *
+   * Core dispute 98 on the v2 testnet **[live]**: a foreign arbitrable, and a
+   * mapping that answers 0 — which is a real local dispute ID, not a miss.
+   */
+  it("refuses a dispute another arbitrable created, and sends nothing", async () => {
+    const foreign = "0xDfa9E40FcBf4f37aa09996eAF39962742299B7Bc" as const;
+    const node = await chain({
+      core: healthyCore({ disputes: () => [8n, foreign, 0, false, 1_756_900_000n] }),
+      resolver: { arbitratorDisputeIDToLocalID: () => 0n },
+    });
+
+    const result = await runSubmitEvidence({ ...base(), dispute: "98", rpcUrl: node.url });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.code).toBe("DISPUTE_NOT_ADDRESSABLE");
+    expect(result.message).toContain(foreign);
+    // `node.sent` is empty on every path through this block — `base()` never
+    // broadcasts — so asserting on it would prove nothing. The refusal fires
+    // before `simulateContract`, and that is what can be falsified.
+    expect(node.contractCalls).not.toContain("EvidenceModule.submitEvidence");
   });
 });

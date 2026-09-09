@@ -15,7 +15,9 @@ broadcast, so that broadcast is a confirmation rather than an experiment.
 - [ ] Assertions are **relational**, not pinned, because a live deployment has no fixed block and no
       fixed cost: the cost reported in the envelope equals the cost quoted immediately before it; the
       reported core dispute ID resolves on chain; the emitted evidence log carries the exact bytes
-      submitted; the local dispute ID the tool resolved matches the mapping read back from the chain;
+      submitted; the local dispute ID the tool resolved matches the mapping read back from the chain
+      — read from the emitted `Evidence` log, **not** from the envelope, which deliberately never
+      carries it (`ADR-0014`, `spec/05 §1.6a`);
       and the dispute reports the expected period.
 - [ ] The two existing assertions are kept verbatim: that no secret reached either output stream, and
       that nothing was written to disk. They are why it runs in separate processes.
@@ -25,6 +27,6 @@ broadcast, so that broadcast is a confirmation rather than an experiment.
       on testnet availability.
 - [ ] Each run broadcasts permanently and creates real testnet disputes. This is stated where someone
       deciding whether to run it will read it.
-- [ ] The existing fork suite is untouched. Two of its tests seed state Arbitrum One cannot provide,
+- [ ] The existing fork suite is untouched beyond ticket 02's one assertion change (`spec/05 §2.7`). Two of its tests seed state Arbitrum One cannot provide,
       and though the testnet now supplies one of them natively, they remain the only deterministic
       proof and testnet state can change underneath us.

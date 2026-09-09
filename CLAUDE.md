@@ -25,7 +25,8 @@ are written; `upload-file` was added out of build order on maintainer instructio
 against the live endpoint**. Nothing published to npm, and **no transaction broadcast on Arbitrum
 One**. Next is **v2 testnet support**, specced and ticketed in `.scratch/testnet-support/`: it
 precedes the acceptance test (step 14), which moves from a pinned fork to the live testnet and whose
-`pnpm test:acceptance` still points at a file that does not exist.
+`pnpm test:acceptance` still points at a file that does not exist. Ticket 02 is done — the evidence
+identifier defect, which was a **Beta** defect the testnet exposed, not testnet scope (`ADR-0014`).
 Build order: `HANDOFF §10` — where the skill is step 12 and the README step 13, not the reverse.
 
 ```
@@ -87,8 +88,9 @@ wins and is named.
   `chain:` field — and asserted **before** any deployment registry lookup, which is scoped to a
   deployment and reads the wrong core on an unverified chain. `spec/03 §7`
 - **Discovery happens upstream**, in `@kleros/agentkit`. Reads here are limited to what is needed
-  to **refuse a bad write**; a read that cannot change the decision to sign does not belong here.
-  `ADR-0001`, `CONTEXT.md`
+  to **refuse a bad write** — or, in exactly one case, to decide **what** is signed, where the
+  alternative is a write that cannot be read back. A read that does neither does not belong here.
+  `ADR-0001`, `ADR-0014`, `CONTEXT.md`
 - **No subgraph, and HTTP in exactly one command.** The write plane must not depend on an indexer
   to decide whether to sign. `upload-file` pins an attachment and is the only command that speaks
   HTTP: it never signs, reads the chain or loads a key, and `submit-evidence` **must not** grow a
@@ -96,9 +98,16 @@ wins and is named.
   one signing key, because the endpoint is unauthenticated. A URI the operator *hands* the tool is
   still never dereferenced. `ADR-0012` reverses `ADR-0009`; `spec/06` has what was measured.
 - **`submitEvidence` has no access control, no payment and no period gate**, so period discipline
-  is this CLI's own policy: it **warns and never refuses**. The one hard refusal is a core dispute
-  ID that does not exist, and the harm there is unreachability, not loss — the subgraph indexes it
-  either way, so claiming the chain would reject it is false. `ADR-0011`, `spec/02 §4.2`
+  is this CLI's own policy: it **warns and never refuses**. Both hard refusals are unreachability,
+  not loss — the subgraph indexes the evidence either way, so claiming the chain would reject it is
+  false: a core dispute ID that does not exist, and one belonging to another arbitrable.
+  `ADR-0011`, `ADR-0014`, `spec/02 §4.2`
+- **What `submitEvidence` is given is the LOCAL dispute ID, not the core one `--dispute` takes.**
+  The evidence group is keyed by it and the Court client resolves by it; the two coincide on
+  Arbitrum One only because `DisputeResolver` created every dispute there. Check
+  `disputes().arbitrated` **before** trusting `arbitratorDisputeIDToLocalID` — it is a mapping
+  getter, so a foreign dispute reads as `0`, and `0` is a real dispute. Never report the local ID.
+  `ADR-0014`, `spec/02 §4.2`
 - **Never print the private key**, and never accept one from the environment or the command line.
 - **The disputant is not the juror** — a different actor, a different key. This tool cannot detect
   a violation on chain, so it is an operator responsibility: say so, and do not promise a check

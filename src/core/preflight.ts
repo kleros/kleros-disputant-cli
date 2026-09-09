@@ -1,4 +1,5 @@
-import type { Hex } from "viem";
+import type { Address, Hex } from "viem";
+import { DISPUTE_RESOLVER } from "./deployment.js";
 import { encodeExtraData } from "./extra-data.js";
 import { err, type KlerosResult, ok } from "./result.js";
 
@@ -340,6 +341,14 @@ export type Period = (typeof PERIODS)[number];
 export type EvidenceChainFacts = {
   coreDisputeID: bigint;
   courtID: bigint;
+  /** `disputes().arbitrated` — the contract that asked for this ruling. */
+  arbitrable: Address;
+  /**
+   * The arbitrable's own index for this dispute, or **`null` when the arbitrable
+   * is not `DisputeResolver`** — a foreign dispute has no local index this tool
+   * can know, and the mapping's zero default must never be mistaken for one.
+   */
+  localDisputeID: bigint | null;
   /** Raw `disputes().period`. Out of range means the deployed enum grew. */
   periodIndex: number;
   ruled: boolean;
@@ -367,6 +376,47 @@ export type EvidenceAssessment = {
 };
 
 /**
+ * The **second** hard refusal on the evidence path, and the one that decides
+ * which identifier is signed (`spec/02 §4.2`, ADR-0014).
+ *
+ * Kept out of `checkEvidencePreflight` and out of the read layer on purpose.
+ * ADR-0011's policy — warn, never refuse — is about the *period*, and holds
+ * unchanged; this is unreachability, the exception that policy always had. It
+ * cannot live in `readEvidenceFacts` either, because `status` shares that read
+ * and reports a foreign dispute's period perfectly well. Only a command that
+ * signs needs a local index, so only a command that signs refuses without one.
+ *
+ * `null` here is never the mapping's zero: `readEvidenceFacts` substitutes it
+ * when the arbitrable is not `DisputeResolver`, precisely because zero is a real
+ * local dispute ID and the getter returns it for any key it has never seen
+ * **[live]**.
+ */
+export function checkEvidenceAddressable(facts: EvidenceChainFacts): KlerosResult<bigint> {
+  // Both conditions, deliberately. The read layer already substitutes `null` for
+  // a foreign dispute, but `spec/03 §8` says judgement belongs *here*, and a
+  // refusal whose whole guarantee is a ternary in the read layer is one tidy-up
+  // away from gone. The arbitrable is the criterion; the `null` is the belt.
+  const ours = facts.arbitrable.toLowerCase() === DISPUTE_RESOLVER.address.toLowerCase();
+  if (ours && facts.localDisputeID !== null) return ok(facts.localDisputeID);
+
+  return err(
+    "DISPUTE_NOT_ADDRESSABLE",
+    `Dispute ${facts.coreDisputeID} exists, but ${facts.arbitrable} created it — not the ` +
+      "DisputeResolver this tool files through. Evidence is grouped by the arbitrable's own " +
+      "dispute ID, and only that arbitrable can say what this dispute's is, so a submission " +
+      "from here would be indexed where nothing reads it. The case is real; addressing it is " +
+      "what this tool cannot do. Nothing was sent.",
+    {
+      coreDisputeID: facts.coreDisputeID.toString(),
+      arbitrable: facts.arbitrable,
+      hint:
+        "Retrying will not help — this dispute can never be reached from this tool. Submit " +
+        "evidence through the contract that created it.",
+    },
+  );
+}
+
+/**
  * The fraction of the court's own evidence period below which submitting is
  * called out as tight.
  *
@@ -384,9 +434,11 @@ export const EVIDENCE_PRESSURE_DENOMINATOR = 4n;
  * Pure, and it **never refuses**. `submitEvidence` has no access control, no
  * payment and no period gate — it succeeds by `eth_call` against a dispute in
  * the `execution` period — so any period discipline is this CLI's own policy and
- * ADR-0011 fixes that policy at "warn". The one hard refusal on this path lives
- * in the read layer, where a dispute ID that `disputes()` cannot resolve is
- * named `DISPUTE_NOT_FOUND`.
+ * ADR-0011 fixes that policy at "warn". The two hard refusals on this
+ * path are elsewhere: `DISPUTE_NOT_FOUND` in the read layer, for an ID
+ * `disputes()` cannot resolve, and `checkEvidenceAddressable` above, for a
+ * dispute another arbitrable created. Both are unreachability, not period
+ * discipline.
  */
 export function checkEvidencePreflight(
   facts: EvidenceChainFacts,

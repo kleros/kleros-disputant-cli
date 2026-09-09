@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DISPUTE_RESOLVER } from "../deployment.js";
 import { checkPreflight } from "../preflight.js";
 import { readCreateDisputeFacts, readEvidenceFacts } from "../read-preflight.js";
 import { failure, fakeClient, functionNames, success } from "./fake-client.js";
@@ -150,7 +151,8 @@ describe("reading the evidence facts", () => {
   it("resolves a dispute and the period lengths of its own court, in two round trips", async () => {
     const client = fakeClient({
       timestamp: 2_000n,
-      multicall: (contracts) => (contracts[0]?.functionName === "disputes" ? [dispute()] : [times]),
+      multicall: (contracts) =>
+        contracts[0]?.functionName === "disputes" ? [dispute(), success(215n)] : [times],
     });
     const result = await readEvidenceFacts({ client, coreDisputeID: 216n });
 
@@ -159,6 +161,8 @@ describe("reading the evidence facts", () => {
       data: {
         coreDisputeID: 216n,
         courtID: 1n,
+        arbitrable: DISPUTE_RESOLVER.address,
+        localDisputeID: 215n,
         periodIndex: 0,
         ruled: false,
         lastPeriodChange: 1_000n,
@@ -167,7 +171,8 @@ describe("reading the evidence facts", () => {
       },
     });
     expect(client.calls.map((batch) => functionNames(batch))).toEqual([
-      ["disputes"],
+      // Both reads take only the core dispute ID, so they share the round trip.
+      ["disputes", "arbitratorDisputeIDToLocalID"],
       ["getTimesPerPeriod"],
     ]);
   });
@@ -178,7 +183,7 @@ describe("reading the evidence facts", () => {
    * subgraph. The harm is unreachability (`spec/02 §4.2`, ADR-0011).
    */
   it("refuses a dispute ID KlerosCore cannot resolve, and names unreachability", async () => {
-    const client = fakeClient({ multicall: () => [failure()] });
+    const client = fakeClient({ multicall: () => [failure(), success(0n)] });
     const result = await readEvidenceFacts({ client, coreDisputeID: 999_999n });
 
     expect(result.success).toBe(false);
@@ -189,6 +194,66 @@ describe("reading the evidence facts", () => {
     expect(result.message).not.toMatch(/revert|reject the/i);
     // The court's period lengths were never asked for: there is no court.
     expect(client.calls).toHaveLength(1);
+  });
+
+  /**
+   * The measured pair, from the v2 testnet at block 306 980 776 **[live]**: core
+   * dispute 58 is the resolver's local dispute 33. Production cannot show this —
+   * `DisputeResolver` created every dispute on Arbitrum One, so the two numbers
+   * coincide for all of them (`spec/01 §7`).
+   */
+  it("carries the local dispute ID, which is not the core one", async () => {
+    const client = fakeClient({
+      multicall: (contracts) =>
+        contracts[0]?.functionName === "disputes" ? [dispute(), success(33n)] : [times],
+    });
+    const result = await readEvidenceFacts({ client, coreDisputeID: 58n });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.localDisputeID).toBe(33n);
+    expect(result.data.coreDisputeID).toBe(58n);
+  });
+
+  /**
+   * The reason the arbitrable is checked **before** the mapping is read. The
+   * getter is a public mapping, so a foreign dispute reads as `0` rather than
+   * reverting — and `0` is a real local dispute ID **[live]**: on the testnet
+   * core dispute 0 is the resolver's local dispute 0. Trusting the mapping alone
+   * would file evidence against that dispute.
+   */
+  it("reports no local ID for a dispute another arbitrable created", async () => {
+    const foreign = "0xDfa9E40FcBf4f37aa09996eAF39962742299B7Bc" as const;
+    const client = fakeClient({
+      multicall: (contracts) =>
+        contracts[0]?.functionName === "disputes"
+          ? [success([1n, foreign, 0, false, 1_000n]), success(0n)]
+          : [times],
+    });
+    const result = await readEvidenceFacts({ client, coreDisputeID: 98n });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.localDisputeID).toBeNull();
+    expect(result.data.arbitrable).toBe(foreign);
+  });
+
+  /**
+   * A public mapping getter cannot revert, so a failure is not "no local index"
+   * — it means the address or ABI bound here is not the deployed resolver.
+   * Reading it as a missing mapping would send evidence to local ID 0.
+   */
+  it("reports an unanswerable mapping as a deployment problem, not a missing ID", async () => {
+    const client = fakeClient({
+      multicall: (contracts) =>
+        contracts[0]?.functionName === "disputes" ? [dispute(), failure()] : [times],
+    });
+    const result = await readEvidenceFacts({ client, coreDisputeID: 216n });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.code).toBe("DEPLOYMENT_INCONSISTENT");
+    expect(result.message).toContain("cannot revert");
   });
 
   it("refuses a dispute ID too large to be one", async () => {
@@ -208,7 +273,7 @@ describe("reading the evidence facts", () => {
   it("reports an unreadable court as RPC_ERROR, not as a missing dispute", async () => {
     const client = fakeClient({
       multicall: (contracts) =>
-        contracts[0]?.functionName === "disputes" ? [dispute()] : [failure()],
+        contracts[0]?.functionName === "disputes" ? [dispute(), success(215n)] : [failure()],
     });
     const result = await readEvidenceFacts({ client, coreDisputeID: 216n });
     expect(result.success).toBe(false);

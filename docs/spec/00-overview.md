@@ -21,7 +21,10 @@ The following are **out of scope** and MUST NOT be implemented from this specifi
    [ADR-0001](../adr/0001-standalone-repo-shaped-for-upstreaming.md) for why it falls there.
 2. **Discovery.** Finding which disputes an address is party to, reading a dispute's state for its
    own sake, resolving dispute templates, listing evidence. `@kleros/agentkit` does that. The only
-   reads here are those that can change the decision to sign.
+   reads here are those that can change the decision to sign — **or, in one case, what is signed**:
+   resolving the core dispute ID to the local one, where the alternative is a write that cannot be
+   read back ([02 §4.2](./02-payload-construction.md),
+   [ADR-0014](../adr/0014-evidence-is-filed-under-the-local-dispute-id.md)).
 3. **Reading counterparty content.** This tool never fetches, parses or interprets evidence, a
    policy, or any URI found in on-chain data. [ADR-0007](../adr/0007-evidence-is-opaque-operator-supplied-bytes.md)
 4. **Pinning from a command that signs.** Uploading an attachment *is* in scope, but only through
@@ -73,16 +76,20 @@ flowchart TD
         J["core dispute ID, name, description, optional fileURI"] --> K["build inline evidence JSON"]
         K --> L{"does the core dispute exist?"}
         L -- "no" --> Y["refuse: DISPUTE_NOT_FOUND"]
-        L -- "yes" --> M["warn if the period is past evidence — never refuse"]
+        L -- "yes" --> P{"did DisputeResolver create it?"}
+        P -- "no" --> Z["refuse: DISPUTE_NOT_ADDRESSABLE"]
+        P -- "yes" --> Q["resolve core → local dispute ID"]
+        Q --> M["warn if the period is past evidence — never refuse"]
         M --> N["simulate, then broadcast on --broadcast"]
     end
 ```
 
 The asymmetry between the two is the point. Creating a dispute **spends money and cannot be
 undone**; submitting evidence costs gas only and can be repeated. So the pre-flight on the left is
-elaborate and the one on the right is nearly empty — and the one refusal on the right exists
-because evidence filed against a dispute that does not exist is unreachable, not because the
-contract objects. [ADR-0011](../adr/0011-evidence-period-pressure-warns-and-never-refuses.md)
+elaborate and the one on the right is nearly empty — and **both** refusals on the right exist
+because evidence filed under the wrong identifier is unreachable, not because the contract objects.
+It accepts anything. [ADR-0011](../adr/0011-evidence-period-pressure-warns-and-never-refuses.md),
+[ADR-0014](../adr/0014-evidence-is-filed-under-the-local-dispute-id.md)
 
 ## Why pre-flight carries the whole safety burden
 
@@ -106,8 +113,8 @@ distinctions are load-bearing enough to restate, because getting them wrong is s
 | Term | Meaning in this document |
 | --- | --- |
 | **Core dispute ID** | The index in `KlerosCore.disputes[]`, reported by `DisputeCreation`. What `--dispute` takes |
-| **Local dispute ID** | `DisputeResolver`'s own index, mapped back by `arbitratorDisputeIDToLocalID`. Not what any command takes |
-| **External dispute ID** | The third field of `DisputeRequest`. What the Kleros Court web client uses to look evidence up. **[fork]** It is the local dispute ID |
+| **Local dispute ID** | `DisputeResolver`'s own index, mapped back by `arbitratorDisputeIDToLocalID`. Not what any command takes, and never reported — but it is what `submitEvidence` is given |
+| **External dispute ID** | The third field of `DisputeRequest`. What the Kleros Court web client uses to look evidence up, and to submit it. **[fork]** It is the local dispute ID |
 
 On Arbitrum One today all three are numerically equal for every dispute in existence, because
 `DisputeResolver` created every one of them. **[live]** That coincidence is why the distinction is

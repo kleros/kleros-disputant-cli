@@ -10,7 +10,12 @@ import {
 } from "../core/deployment.js";
 import { buildEvidence } from "../core/evidence.js";
 import { formatWeiAsEth, parseBigInt, parseEthToWei, parseGweiToWei } from "../core/numbers.js";
-import { checkEffective, checkEvidencePreflight, checkPreflight } from "../core/preflight.js";
+import {
+  checkEffective,
+  checkEvidenceAddressable,
+  checkEvidencePreflight,
+  checkPreflight,
+} from "../core/preflight.js";
 import {
   quoteArbitrationCost,
   readBalance,
@@ -262,11 +267,17 @@ export async function runSubmitEvidence(
   if (!prepared.success) return prepared;
   const { client, account } = prepared.data;
 
-  // The one hard refusal on this path. `submitEvidence` has no access control,
-  // no payment and no period gate, and it accepts an ID that does not exist —
-  // so the harm is unreachability, not loss (ADR-0011).
+  // The first of the two hard refusals on this path. `submitEvidence` has no
+  // access control, no payment and no period gate, and it accepts an ID that does
+  // not exist — so the harm is unreachability, not loss (ADR-0011).
   const facts = await readEvidenceFacts({ client, coreDisputeID: coreDisputeID.data });
   if (!facts.success) return facts;
+
+  // The second hard refusal, and the one that decides which identifier is signed.
+  // It is on the write path rather than in the read, because `status` shares that
+  // read and reports a foreign dispute perfectly well (ADR-0014).
+  const localDisputeID = checkEvidenceAddressable(facts.data);
+  if (!localDisputeID.success) return localDisputeID;
 
   const assessment = checkEvidencePreflight(facts.data);
   if (!assessment.success) return assessment;
@@ -278,11 +289,14 @@ export async function runSubmitEvidence(
     client,
     account,
     target: { address: EVIDENCE_MODULE.address, abi: EVIDENCE_MODULE_ABI as Abi },
-    // The parameter is named `_externalDisputeID` and what is passed is the
-    // **core** dispute ID. They are the same number for every dispute on
-    // Arbitrum One today, and only because `DisputeResolver` created every one
-    // of them (`spec/01 §7`, `spec/02 §4.2`).
-    call: { functionName: "submitEvidence", args: [coreDisputeID.data, evidence.data.json] },
+    // `_externalDisputeID` is the **local** dispute ID, and that is what is sent
+    // — not the core ID the caller passed. The subgraph keys the evidence group
+    // on this argument verbatim and the Court client looks it up by the
+    // dispute's `externalDisputeId`, so sending the core ID files the document
+    // into a group nothing reads wherever the two differ. They coincide for
+    // every dispute on Arbitrum One only because `DisputeResolver` created every
+    // one of them (`spec/01 §7`, `spec/02 §4.2`, ADR-0014).
+    call: { functionName: "submitEvidence", args: [localDisputeID.data, evidence.data.json] },
     // Not payable. There is no `value` here and adding one would be rejected.
     broadcast: options.broadcast,
     timeoutMs: RECEIPT_TIMEOUT_MS,

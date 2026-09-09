@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { DISPUTE_RESOLVER } from "../deployment.js";
 import type {
   ChainFacts,
   EvidenceChainFacts,
   PreflightFacts,
   RequestedDispute,
 } from "../preflight.js";
-import { checkEvidencePreflight, checkPreflight } from "../preflight.js";
+import { checkEvidenceAddressable, checkEvidencePreflight, checkPreflight } from "../preflight.js";
 import { EXTRA_DATA_VECTORS } from "./vectors.js";
 
 /**
@@ -235,6 +236,78 @@ describe("checkPreflight", () => {
  * all. So every check below is a warning, and the assertion that matters most is
  * that none of them is ever a refusal.
  */
+/**
+ * `spec/02 §4.2` — the check that decides which identifier is signed, kept apart
+ * from the period policy so ADR-0011's "warn, never refuse" stays literally true
+ * of `checkEvidencePreflight`.
+ */
+describe("addressability", () => {
+  const facts = (over: Partial<EvidenceChainFacts> = {}): EvidenceChainFacts => ({
+    coreDisputeID: 58n,
+    courtID: 8n,
+    arbitrable: DISPUTE_RESOLVER.address,
+    localDisputeID: 33n,
+    periodIndex: 0,
+    ruled: false,
+    lastPeriodChange: 1_000n,
+    timesPerPeriod: [280_800n, 100n, 100n, 100n],
+    now: 1_000n,
+    ...over,
+  });
+
+  it("returns the local dispute ID, not the core one", () => {
+    const result = checkEvidenceAddressable(facts());
+    expect(result).toEqual({ success: true, data: 33n });
+  });
+
+  /**
+   * Local ID 0 is a real dispute **[live]** — on the v2 testnet core dispute 0 is
+   * the resolver's local dispute 0 — so zero must pass. This is the assertion
+   * that would fail if the check were ever written against the raw mapping value
+   * instead of the `null` the read layer substitutes.
+   */
+  it("accepts local dispute ID zero, which is a real dispute", () => {
+    const result = checkEvidenceAddressable(facts({ coreDisputeID: 0n, localDisputeID: 0n }));
+    expect(result).toEqual({ success: true, data: 0n });
+  });
+
+  /**
+   * Measured on the v2 testnet **[live]**: core dispute 98 belongs to a foreign
+   * arbitrable, and the mapping answers 0 for it — the same 0 the case above
+   * proves is a real dispute.
+   */
+  /**
+   * The read layer substitutes `null` for a foreign dispute, so this state cannot
+   * occur today — which is the point. It is what the check looks like after
+   * someone removes that substitution as a redundant branch, and it must still
+   * refuse (`spec/03 §8`: judgement belongs in the pure layer).
+   */
+  it("refuses a foreign arbitrable even when a local ID was resolved anyway", () => {
+    const foreign = "0xDfa9E40FcBf4f37aa09996eAF39962742299B7Bc" as const;
+    const result = checkEvidenceAddressable(facts({ arbitrable: foreign, localDisputeID: 33n }));
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.code).toBe("DISPUTE_NOT_ADDRESSABLE");
+  });
+
+  it("refuses a dispute another arbitrable created, and names the owner", () => {
+    const foreign = "0xDfa9E40FcBf4f37aa09996eAF39962742299B7Bc" as const;
+    const result = checkEvidenceAddressable(
+      facts({ coreDisputeID: 98n, arbitrable: foreign, localDisputeID: null }),
+    );
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.code).toBe("DISPUTE_NOT_ADDRESSABLE");
+    // The caller must be able to see the case is real and this tool is the limit.
+    expect(result.message).toContain(foreign);
+    expect(result.message).toContain("exists");
+    // Distinct from DISPUTE_NOT_FOUND precisely so a caller does not retry.
+    expect((result.details as { hint: string }).hint).toContain("Retrying will not help");
+  });
+});
+
 describe("the evidence pre-flight", () => {
   /** Court 1's real evidence period **[live]**: 280 800 s, 3.25 days. */
   const GENERAL_COURT_EVIDENCE = 280_800n;
@@ -243,6 +316,8 @@ describe("the evidence pre-flight", () => {
   const evidenceFacts = (over: Partial<EvidenceChainFacts> = {}): EvidenceChainFacts => ({
     coreDisputeID: 216n,
     courtID: 1n,
+    arbitrable: DISPUTE_RESOLVER.address,
+    localDisputeID: 216n,
     periodIndex: 0,
     ruled: false,
     lastPeriodChange: 1_000_000n,

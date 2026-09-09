@@ -645,7 +645,20 @@ describe.skipIf(!FORK_READY)("fork — spec/05 §2", () => {
         const args = emitted[0]?.args as
           | { _externalDisputeID: bigint; _party: Address; _evidence: string }
           | undefined;
-        expect(args?._externalDisputeID).toBe(inExecution);
+        // Relational, not equality-with-the-core-ID: what the module must receive
+        // is the arbitrable's **local** dispute ID (`spec/02 §4.2`, ADR-0014).
+        // On a fork of Arbitrum One the two coincide for every dispute, so
+        // asserting `inExecution` here would pass whichever one the CLI sent —
+        // which is exactly how the defect survived. Reading the mapping back
+        // makes the assertion say what it means, and it will separate the day a
+        // second arbitrable files on this deployment.
+        const localID = (await client.readContract({
+          address: DISPUTE_RESOLVER.address,
+          abi: DISPUTE_RESOLVER_ABI,
+          functionName: "arbitratorDisputeIDToLocalID",
+          args: [inExecution],
+        })) as bigint;
+        expect(args?._externalDisputeID).toBe(localID);
         expect(args?._party).toBe(disputant.address);
         expect(args?._evidence).toBe(JSON.stringify(EVIDENCE_VECTORS[0].document));
       },

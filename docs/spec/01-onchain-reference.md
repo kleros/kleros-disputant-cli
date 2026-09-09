@@ -416,21 +416,30 @@ Normative:
   **[fork]**, so this is no longer a correctness fix — it is a provenance rule: the log is
   `KlerosCore`'s own statement of the ID it assigned, and the return value is `DisputeResolver`
   relaying it. Only one of the two stays right if the relay changes.
-- `--dispute` **MUST** be documented and treated as the **core** dispute ID.
+- `--dispute` **MUST** be documented and treated as the **core** dispute ID, and the CLI **MUST NOT**
+  report a local dispute ID to a caller.
 - The CLI **MUST NOT** implement any behaviour that depends on local and external IDs being equal.
+  `submitEvidence` was such a behaviour until 2026-09-09; it now resolves the core dispute ID to the
+  local one before signing ([02 §4.2](./02-payload-construction.md),
+  [ADR-0014](../adr/0014-evidence-is-filed-under-the-local-dispute-id.md)).
 
-> **[client]** The Kleros Court web client looks evidence up by the subgraph's
-> `dispute.externalDisputeId` — the third field of `DisputeRequest` — not by the core dispute ID
-> (`web/src/pages/Cases/CaseDetails/Evidence/index.tsx`). Today the two are equal for every dispute,
-> so passing the core dispute ID to `submitEvidence` renders correctly. **This is the single
-> weakest link between this tool and the Court UI.**
+> **Settled, 2026-09-09.** This paragraph previously carried the **[client]** caveat below and
+> called it "the single weakest link between this tool and the Court UI". It was, and the CLI was on
+> the wrong side of it. The Kleros Court client looks evidence up by the subgraph's
+> `dispute.externalDisputeId` — the third field of `DisputeRequest`, which is the local index — and
+> submits under the same value (`web/src/pages/Cases/CaseDetails/Evidence/index.tsx`,
+> `web/src/hooks/queries/useEvidences.ts`).
 >
-> The fork measurement above sharpens it: `_externalDisputeID` really is the local index, so the
-> day a second arbitrable creates a dispute, every `DisputeResolver` dispute after it has
-> `externalDisputeId != core dispute ID`. What the *chain* does is settled **[fork]**; whether the
-> Court UI then fails to render evidence filed against the core ID is still **[client]** — it has
-> not been tested against the UI, and [§7.1](#71-evidencegroupid--a-v1-inheritance-being-removed)
-> is why the concept is going away rather than being worked around here.
+> **[live]** What upgraded the claim was not the UI but the index. On the v2 testnet, where the
+> identifiers diverge, all 47 `ClassicEvidenceGroup` ids lie in the local range 4..76 and none in the
+> core-only range 77..126: core dispute 126 is local 76, group `76` holds 26 evidences, and group
+> `126` does not exist. Evidence filed under a core ID above the local range is not filed against the
+> dispute at all.
+>
+> The CLI now resolves core → local before signing
+> ([ADR-0014](../adr/0014-evidence-is-filed-under-the-local-dispute-id.md)). Note the direction of
+> travel in [§7.1](#71-evidencegroupid--a-v1-inheritance-being-removed): upstream intends to move
+> back to the core ID, in the **indexer**, and that reversal is tracked there.
 
 ### 7.1 `evidenceGroupID` — a v1 inheritance being removed
 
@@ -461,17 +470,36 @@ Note also that **a chain ID does not identify a deployment**: testnet and devnet
 That is a second, independent reason [03 §7](./03-cli-surface.md) asserts 42161 and then selects
 `mainnetViem` explicitly, rather than resolving a deployment from the chain ID.
 
+**[inferred]** The rename lives on upstream `dev`, not on `master`, and `master` is what is deployed
+to both Arbitrum One and the v2 testnet — each reports `EvidenceModule.version()` `0.8.0`, which is
+`master`'s constant. The contract half of the change is **cosmetic**: `dev`'s `submitEvidence` body
+still only emits its argument, and the selector is unchanged.
+
+The substantive half is in the **indexer**. `dev` deletes `ClassicEvidenceGroup`, attaches evidence
+to the `Dispute` entity keyed by the core dispute ID, and **drops** evidence whose id matches no
+dispute, with a logged error. Neither chain this specification covers runs it: both subgraphs still
+answer `classicEvidenceGroups` and neither knows a `Dispute.evidenceCount` field **[live]**.
+
+So the two identifiers swap places when that indexer ships, and the current behaviour becomes wrong
+in the opposite direction — from unreachable to discarded.
+
 Normative:
 
-- `--dispute` **MUST** remain the core dispute ID. The removal moves the contract *towards* that
-  meaning — `_arbitratorDisputeID` **is** the core dispute ID — so the rule is right both before and
-  after the change, and right on beta today only by the coincidence measured in §7.
+- `--dispute` **MUST** remain the core dispute ID. That rule is right before and after the change:
+  today it is resolved to the local ID before signing ([02 §4.2](./02-payload-construction.md)), and
+  after the change it will be passed through.
 - The CLI **MUST NOT** expose an evidence-group concept in its surface or its vocabulary. It is
   being deleted upstream.
+- [05 §1.6](./05-verification.md)'s pin on the parameter **name** is the tripwire for the reversal,
+  and it fires on the ABI — which changes before the subgraph does. A failure there **MUST** send the
+  reader to [ADR-0014](../adr/0014-evidence-is-filed-under-the-local-dispute-id.md) before shipping,
+  not to the code.
 
 ## 8. Read surface for pre-flight
 
-Only reads that can change the decision to sign belong here. **[abi]**, selectors **[computed]**.
+Only reads that can change the decision to sign belong here — and one that decides *what* is
+signed ([ADR-0014](../adr/0014-evidence-is-filed-under-the-local-dispute-id.md)). **[abi]**,
+selectors **[computed]**.
 
 | Call | Contract | Used for |
 | --- | --- | --- |
@@ -479,7 +507,8 @@ Only reads that can change the decision to sign belong here. **[abi]**, selector
 | `courts(uint256) → (parent, hiddenVotes, minStake, alpha, feeForJuror, jurorsForCourtJump, disabled)` | `KlerosCore` | Court exists, is not disabled, and the fee that explains the quote |
 | `isSupported(uint96, uint256) → bool` | `KlerosCore` | Kit is enabled in that court. **Never cached** |
 | `arbitrationCost(bytes) → uint256` | `KlerosCore` | The exact value to send. **Overloaded** — see below |
-| `disputes(uint256) → (courtID, arbitrated, period, ruled, lastPeriodChange)` | `KlerosCore` | The dispute exists; its period, for the evidence warning |
+| `disputes(uint256) → (courtID, arbitrated, period, ruled, lastPeriodChange)` | `KlerosCore` | The dispute exists; its period, for the evidence warning; and **`arbitrated`, which gates the call below** |
+| `arbitratorDisputeIDToLocalID(uint256) → uint256` | `DisputeResolver` | **The identifier `submitEvidence` is given** ([02 §4.2](./02-payload-construction.md)). Shares the `disputes` multicall. A public mapping getter, so it returns `0` rather than reverting for a dispute another arbitrable created — `arbitrated` **MUST** be checked first |
 | `getTimesPerPeriod(uint96) → uint256[4]` | `KlerosCore` | **Court existence** (it reverts past the end of the array), and the period deadline for the evidence warning |
 | `version()` | `KlerosCore`, `EvidenceModule` | A **warning** on mismatch, never a failure |
 | `getBalance` | — | `INSUFFICIENT_BALANCE`, which **MUST** include `value` |

@@ -30,16 +30,17 @@ behaviour has been observed — only its ABI is known.
 
 ## 2. Unverified claims this specification carries
 
-Three of the five below were settled by the fork tests ([05 §2](./05-verification.md)), which is
-what that step existed to do. They are kept, struck through, because a reader who was told a claim
-was unverified needs to be told it no longer is — and because two of them resolved *against* what
-this specification believed.
+Four of the five below are now settled: three by the fork tests ([05 §2](./05-verification.md)),
+which is what that step existed to do, and the fourth by measuring the v2 testnet, where the
+identifiers have separated. They are kept, struck through, because a reader who was told a claim was
+unverified needs to be told it no longer is — and because two of them resolved *against* what this
+specification believed, and one of them **against what this CLI did**.
 
 | # | Claim | Marker | Status |
 | --- | --- | --- | --- |
 | 1 | ~~**Excess `msg.value` is not refunded** and buys extra jurors~~ | **[fork]** | **SETTLED, and the claim was right.** `2 × arbitrationCost` yields `nbVotes` 6 instead of 3 and refunds nothing. [01 §3.2](./01-onchain-reference.md) carries the numbers |
 | 2 | ~~`_externalDisputeID` in `DisputeRequest` is the arbitrable's local index rather than the arbitrator's dispute ID~~ | **[fork]** | **SETTLED, and the claim was right.** On a seeded fork `_externalDisputeID` is 220 where the core ID is 224, and `arbitratorDisputeIDToLocalID(224) = 220`. No longer unobservable — it needed a second arbitrable, not Arbiscan |
-| 3 | The Kleros Court web client resolves evidence by `dispute.externalDisputeId`, so passing the core dispute ID is only correct while the two coincide | **[client]** | **Chain half settled, UI half open.** Claim 2 confirms the two really do diverge once a second arbitrable exists. Whether the UI then fails to render is untested. The concept is being removed upstream **[maintainer]**, and `--dispute` does **not** get a second form — [01 §7.1](./01-onchain-reference.md) |
+| 3 | ~~The Kleros Court web client resolves evidence by `dispute.externalDisputeId`, so passing the core dispute ID is only correct while the two coincide~~ | **[live]** | **SETTLED, the claim was right, and the CLI was on the wrong side of it.** Not by testing the UI but by reading the index: on the v2 testnet, where the identifiers diverge, all 47 evidence groups lie in the local range 4..76 and none in the core-only range 77..126. The CLI now resolves core → local before signing ([ADR-0014](../adr/0014-evidence-is-filed-under-the-local-dispute-id.md)); `--dispute` still does **not** get a second form |
 | 4 | The `KlerosCore` `extraData` decoder has the shape quoted in [01 §4.4](./01-onchain-reference.md) | **[inferred]**; every *consequence* is **[live]** | **Open.** Needs verified deployed source. Low priority: the behaviour is confirmed nine ways, and only the source shape is unread |
 | 5 | ~~`DisputeCreation`, `DisputeRequest` and `DisputeTemplate` all land in one transaction~~ | **[fork]** | **SETTLED, and the claim was right.** One receipt, three emitters |
 
@@ -62,14 +63,23 @@ second arbitrable, let it create three disputes, and the three numbers separate.
 created by any other arbitrable breaks the coincidence, silently, for everyone who assumed it — and
 that is now a measurement rather than a warning.
 
-Claim 3 has since been explained rather than merely measured. The argument `submitEvidence` takes
-is a Kleros v1 *evidence group ID*, kept so that evidence submitted before a dispute existed could
-be correlated; it proved unnecessary and **was removed in the devnet deployment**, while beta and
-testnet still inherit it **[maintainer]**. The Kleros Court web client passing an evidence group
-where this CLI passes a core dispute ID is therefore a legacy artifact with a known direction of
-travel, not an unresolved three-way ambiguity — and after the removal the parameter is
-`_arbitratorDisputeID`, which is exactly what this specification already mandates. The full account,
-including why a selector fingerprint cannot see the change, is [01 §7.1](./01-onchain-reference.md).
+Claim 3 was first *explained* and only later measured, and the explanation is why it stayed open too
+long. The argument `submitEvidence` takes is a Kleros v1 *evidence group ID*, kept so that evidence
+submitted before a dispute existed could be correlated; it proved unnecessary and **was removed in
+the devnet deployment**, while beta and testnet still inherit it **[maintainer]**. That account is
+correct, and it made the divergence look like a legacy artifact with a known direction of travel
+rather than a live defect. It is both. Until 2026-09-09 this CLI passed the core dispute ID, which
+the explanation made sound safe and the measurement showed was not: on the deployments this
+specification covers, the evidence group is keyed by the **local** ID
+([ADR-0014](../adr/0014-evidence-is-filed-under-the-local-dispute-id.md)).
+
+The reversal the explanation predicted is real but has not shipped: it lives in the **indexer** on
+upstream `dev`, not in the deployed contract, and [01 §7.1](./01-onchain-reference.md) now tracks it
+as pending — along with why a selector fingerprint cannot see the parameter rename.
+
+This closes `HANDOFF §14.8`'s instruction to "get the verified source from Arbiscan before depending
+on the distinction". The distinction is now depended on, and what settled it was a deployment where
+the numbers differ, not a source read.
 
 ## 2.1 What remains unverified about the pinning endpoint
 
@@ -125,7 +135,7 @@ errors. See [01 §5](./01-onchain-reference.md).
 ### 3.3 The subgraph does not drop evidence for an unknown dispute
 
 §14.5 says the subgraph "does `Dispute.load(coreDisputeID.toString())` and **drops the evidence on
-the floor** if no such dispute exists". `CLAUDE.md` repeats it as the justification for the one
+the floor** if no such dispute exists". `CLAUDE.md` repeats it as the justification for the first
 hard refusal on the evidence path.
 
 **Wrong mechanism.** `subgraph/core/src/EvidenceModule.ts` calls `ensureClassicEvidenceGroup`,
@@ -135,6 +145,13 @@ that no dispute references and no case page queries.
 The refusal is still right; the reason is unreachability, not loss. The error message **MUST** say
 so, because "the chain would reject it" is false and an agent may act on it.
 See [02 §4.2](./02-payload-construction.md).
+
+**Where the belief came from, 2026-09-09.** §14.5 describes upstream `dev` accurately: that branch
+deletes `ClassicEvidenceGroup`, keys evidence on the core dispute ID, and does drop an unmatched
+submission with a logged error. It is not what is deployed — both Arbitrum One and the v2 testnet
+run `master`'s handler **[live]** — so the correction above stands for every chain this
+specification covers. The disagreement was a branch, not a mistake, and
+[01 §7.1](./01-onchain-reference.md) now tracks it as a pending reversal rather than an error.
 
 ### 3.4 `extraEvidences` — §14.6 was right and this specification was wrong
 

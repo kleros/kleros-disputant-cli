@@ -22,9 +22,9 @@ incur supplies `--filter-output`, `--format`, `--full-output`, `--llms`, `--llms
 | Command | Writes | Contract | Call |
 | --- | --- | --- | --- |
 | `arbitration-cost` | no | `KlerosCore` | `arbitrationCost(extraData)` |
-| `status` | no | `KlerosCore` | `disputes`, `getTimesPerPeriod`, `currentRuling` |
+| `status` | no | `KlerosCore`, `DisputeResolver` | `disputes`, `arbitratorDisputeIDToLocalID`, `getTimesPerPeriod`, `currentRuling` |
 | `create-dispute` | **yes, payable** | `DisputeResolver` | `createDisputeForTemplate` |
-| `submit-evidence` | **yes** | `EvidenceModule` | `submitEvidence` |
+| `submit-evidence` | **yes** | `EvidenceModule`; reads `KlerosCore` and `DisputeResolver` first | `submitEvidence`, given the **local** dispute ID ([02 §4.2](./02-payload-construction.md)) |
 | `upload-file` | no chain | *(none)* | HTTP `POST` to the pinning endpoint — [06](./06-attachment-upload.md) |
 
 Both write commands **MUST** be registered with `destructive: true`, so incur appends its
@@ -90,7 +90,7 @@ for. [ADR-0008](../adr/0008-arbitration-fees-are-paid-in-eth-only.md)
 
 | Option | Required | Notes |
 | --- | --- | --- |
-| `--dispute` | yes | **The core dispute ID** ([01 §7](./01-onchain-reference.md)) |
+| `--dispute` | yes | **The core dispute ID** ([01 §7](./01-onchain-reference.md)). Resolved to the local dispute ID before signing, which the caller is never shown ([02 §4.2](./02-payload-construction.md)) |
 | `--name` | yes | The evidence document's `name`. **Not `title`** |
 | `--description` | yes | The body |
 | `--file-uri` | no | An operator input. Never fetched, never validated beyond being a string |
@@ -276,6 +276,8 @@ specification and **MUST NOT** be renamed.
 | `COST_CEILING_EXCEEDED` | The quote exceeds `--max-cost-eth` |
 | `INSUFFICIENT_BALANCE` | `balance < estimatedFee + value` |
 | `DISPUTE_NOT_FOUND` | `KlerosCore.disputes()` does not resolve `--dispute` |
+| `DEPLOYMENT_INCONSISTENT` | A contract answered in a shape this tool was not built against — including a **failed** `arbitratorDisputeIDToLocalID`, which is a public mapping getter and cannot revert ([02 §4.2](./02-payload-construction.md)) |
+| `DISPUTE_NOT_ADDRESSABLE` | The dispute exists, but `disputes().arbitrated` is not `DisputeResolver`, so this tool cannot name it in the identifier the evidence group is keyed by. The `message` **MUST** name the owning arbitrable, and the code **MUST** stay distinct from `DISPUTE_NOT_FOUND` |
 | `EVIDENCE_INVALID` | The evidence document failed the strict schema |
 | `EFFECTIVE_MISMATCH` | The created dispute's court, jurors or kit differ from those requested |
 | `SIMULATION_REVERTED` | `simulateContract` reverted. Carries the decoded reason or the raw selector |

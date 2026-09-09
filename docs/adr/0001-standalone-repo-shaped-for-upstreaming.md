@@ -41,6 +41,20 @@ The resolution that keeps both: **treat AgentKit as a peer CLI the agent also ca
 library. `kleros dispute policy` and `kleros arbitrable classify` before writing; `kleros evidence
 list` to verify after. Two processes, one agent, no shared build.
 
+## Amended, 2026-09-09: reads that decide what to sign
+
+The rule above — and `CLAUDE.md`'s restatement, "reads here are limited to what is needed to refuse
+a bad write" — admitted only reads that change **whether** to sign. `submit-evidence` now makes one
+that changes **what** is signed: it resolves the core dispute ID to the arbitrable's local one,
+because that is the identifier the evidence group is keyed by
+([ADR-0014](./0014-evidence-is-filed-under-the-local-dispute-id.md)).
+
+The widening is deliberate, and narrow. A read may determine the payload only where omitting it
+produces a transaction that succeeds, costs money, and is unreachable — never as a convenience, and
+never to enrich output. A read that merely makes the envelope more informative still belongs
+upstream, and the scope line in `CONTEXT.md` is unmoved: this is still filing, not case
+construction.
+
 ## Consequences
 
 The scope line is **filing**, not **case construction**. Turning an already-built case into a

@@ -1,7 +1,12 @@
 import type { Address, Hex, PublicClient } from "viem";
 import { parseEventLogs } from "viem";
 import { type MulticallEntry, multicall, type Outcome, rpcError } from "./client.js";
-import { KLEROS_CORE, KLEROS_CORE_ABI } from "./deployment.js";
+import {
+  DISPUTE_RESOLVER,
+  DISPUTE_RESOLVER_ABI,
+  KLEROS_CORE,
+  KLEROS_CORE_ABI,
+} from "./deployment.js";
 import type { ChainFacts, EffectiveDispute, EvidenceChainFacts } from "./preflight.js";
 import { err, type KlerosResult, ok } from "./result.js";
 
@@ -25,6 +30,7 @@ import { err, type KlerosResult, ok } from "./result.js";
  */
 
 const core = { address: KLEROS_CORE.address, abi: KLEROS_CORE_ABI } as const;
+const resolver = { address: DISPUTE_RESOLVER.address, abi: DISPUTE_RESOLVER_ABI } as const;
 
 /**
  * `courts` and `getTimesPerPeriod` take a `uint96`; `disputes`, `isSupported`
@@ -140,12 +146,18 @@ export type ReadEvidenceParams = {
  * Two round trips, because the court ID is an output of the first: `disputes()`
  * names the court, and only then can its period lengths be read.
  *
- * The refusal here is **the one hard refusal on this path**. `submitEvidence`
- * has no access control, no payment and no period gate, and it succeeds against
- * a dispute ID that does not exist — the subgraph does not drop that evidence
- * either, because `ensureClassicEvidenceGroup` creates the grouping entity on
- * demand. So the harm is unreachability, not loss, and the message says so
- * rather than claiming the chain would reject it (ADR-0011).
+ * The refusal here is the **first** of the two hard refusals on this path.
+ * `submitEvidence` has no access control, no payment and no period gate, and it
+ * succeeds against a dispute ID that does not exist — the subgraph does not drop
+ * that evidence either, because `ensureClassicEvidenceGroup` creates the
+ * grouping entity on demand. So the harm is unreachability, not loss, and the
+ * message says so rather than claiming the chain would reject it (ADR-0011).
+ *
+ * The second is `checkEvidenceAddressable`, and it is deliberately **not** here:
+ * `status` shares this read and reports a dispute another arbitrable created
+ * perfectly well. This function therefore reports `arbitrable` and a
+ * `localDisputeID` that is `null` for a foreign dispute, and leaves the judgement
+ * to the caller that signs (ADR-0014).
  */
 export async function readEvidenceFacts(
   params: ReadEvidenceParams,
@@ -160,7 +172,19 @@ export async function readEvidenceFacts(
   let now: bigint;
   try {
     const [results, block] = await Promise.all([
-      multicall(client, [{ ...core, functionName: "disputes", args: [coreDisputeID] }]),
+      multicall(client, [
+        { ...core, functionName: "disputes", args: [coreDisputeID] },
+        // Joins the batch rather than costing a round trip: it takes only the
+        // core dispute ID, which is already in hand. Its answer is meaningless
+        // until `arbitrated` has been checked — a public mapping getter returns
+        // the zero default for a key it has never seen, so a foreign dispute
+        // reads as local ID 0 rather than reverting (`spec/01 §7`).
+        {
+          ...resolver,
+          functionName: "arbitratorDisputeIDToLocalID",
+          args: [coreDisputeID],
+        },
+      ]),
       client.getBlock(),
     ]);
     first = results;
@@ -177,13 +201,22 @@ export async function readEvidenceFacts(
   // so "does not exist" has to be named here — `spec/01 §8`.
   if (dispute?.status !== "success") return disputeNotFound(coreDisputeID);
 
-  const [courtID, , periodIndex, ruled, lastPeriodChange] = dispute.result as readonly [
+  const [courtID, arbitrable, periodIndex, ruled, lastPeriodChange] = dispute.result as readonly [
     bigint,
     Address,
     number,
     boolean,
     bigint,
   ];
+
+  // `null` rather than the raw zero, so a caller cannot mistake the mapping's
+  // default for the first dispute. Only a dispute this arbitrable created has a
+  // local index at all, and deciding what to do about that is the write path's
+  // job — `status` reads a foreign dispute perfectly well and must not refuse it.
+  const localDisputeID = addresses(arbitrable, DISPUTE_RESOLVER.address)
+    ? localID(first[1], coreDisputeID)
+    : ok(null);
+  if (!localDisputeID.success) return localDisputeID;
 
   let second: Outcome[];
   try {
@@ -206,12 +239,41 @@ export async function readEvidenceFacts(
   return ok({
     coreDisputeID,
     courtID,
+    arbitrable,
+    localDisputeID: localDisputeID.data,
     periodIndex: Number(periodIndex),
     ruled,
     lastPeriodChange,
     timesPerPeriod: times.result as readonly bigint[],
     now,
   });
+}
+
+/**
+ * Case-insensitive, because a checksummed literal and a value decoded from a
+ * call are the same address in different spellings.
+ */
+function addresses(a: Address, b: Address): boolean {
+  return a.toLowerCase() === b.toLowerCase();
+}
+
+/**
+ * `arbitratorDisputeIDToLocalID` is a public mapping getter and cannot revert,
+ * so a failed entry is not "this dispute has no local index" — it means the
+ * address or the ABI this tool bound to is not what is deployed. Reporting that
+ * as a missing mapping would send evidence to local ID 0.
+ */
+function localID(outcome: Outcome | undefined, coreDisputeID: bigint): KlerosResult<bigint> {
+  if (outcome?.status !== "success") {
+    return err(
+      "DEPLOYMENT_INCONSISTENT",
+      `DisputeResolver did not answer arbitratorDisputeIDToLocalID(${coreDisputeID}). It is a ` +
+        `public mapping getter and cannot revert, so ${DISPUTE_RESOLVER.address} is not the ` +
+        "DisputeResolver this tool was built against. Nothing was sent.",
+      { coreDisputeID: coreDisputeID.toString(), resolver: DISPUTE_RESOLVER.address },
+    );
+  }
+  return ok(outcome.result as bigint);
 }
 
 function disputeNotFound(coreDisputeID: bigint): KlerosResult<never> {

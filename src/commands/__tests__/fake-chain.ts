@@ -293,6 +293,10 @@ export function healthyDeployment(): { core: Answers; resolver: Answers; evidenc
     resolver: {
       arbitrator: () => KLEROS_CORE.address,
       templateRegistry: () => DISPUTE_TEMPLATE_REGISTRY.address,
+      // Arbitrum One's own default: the resolver created every dispute there, so
+      // core and local coincide for all of them (`spec/01 §7`). Override it to
+      // get the divergence production cannot show.
+      arbitratorDisputeIDToLocalID: ([coreDisputeID]) => coreDisputeID as bigint,
     },
     evidenceModule: { version: () => "0.8.0" },
   };

@@ -331,22 +331,47 @@ on the consumer side. The CLI's authoring schema **MUST** still reject them, for
 
 `submitEvidence(uint256 _externalDisputeID, string _evidence)`.
 
-**The parameter is named `_externalDisputeID`, and what the CLI passes is the core dispute ID.**
-Those are the same number for every dispute on Arbitrum One today
-([01 §7](./01-onchain-reference.md)). `--dispute` **MUST** take the core dispute ID.
+**The parameter is named `_externalDisputeID`, it is the arbitrable's local dispute ID, and that is
+what the CLI passes.** `--dispute` **MUST** still take the **core** dispute ID, and the CLI **MUST**
+resolve it to the local one through `DisputeResolver.arbitratorDisputeIDToLocalID` before signing.
+The two coincide for every dispute on Arbitrum One today, and only because `DisputeResolver` created
+every one of them ([01 §7](./01-onchain-reference.md)). An earlier revision of this section had the
+CLI pass the core ID; [ADR-0014](../adr/0014-evidence-is-filed-under-the-local-dispute-id.md)
+records what that would have cost and what settled it.
 
-**[live]** Two facts bound the CLI's freedom here:
+**[live]** The contract decides nothing here — it emits its argument and stops. The meaning is
+downstream, and downstream keys on the local ID:
 
-- `submitEvidence` succeeds against a core dispute ID that does not exist. The contract does not
-  look it up.
-- The subgraph does not drop such evidence either: `ensureClassicEvidenceGroup` **creates** the
-  grouping entity on demand, so the evidence is indexed under an ID no dispute references and no
-  case page will ever query.
+- The subgraph's `handleEvidenceEvent` uses the argument verbatim as the `ClassicEvidenceGroup` id,
+  and `ensureClassicEvidenceGroup` **creates** that entity on demand. There is no dispute lookup and
+  no error path, so an unmatched id becomes a silent orphan group.
+- `Dispute.externalDisputeId` is `DisputeResolver`'s `localDisputeID`, and the Kleros Court client
+  both lists and submits evidence under that value.
+- On the v2 testnet, where the identifiers diverge, **all 47 evidence groups lie in the local range
+  4..76 and none in the core-only range 77..126.** Core dispute 126 is local 76; group `76` holds 26
+  evidences and group `126` does not exist.
 
-So the harm is unreachability, not loss. The CLI **MUST** refuse a core dispute ID that
-`KlerosCore.disputes()` does not resolve — it is the one hard refusal on this path — and the error
-message **SHOULD** say the evidence would be filed where nothing can read it, rather than claim the
-chain would reject it.
+So the harm of a wrong first argument is unreachability, not loss, and there are **two** hard
+refusals on this path:
+
+- The CLI **MUST** refuse a core dispute ID that `KlerosCore.disputes()` does not resolve
+  (`DISPUTE_NOT_FOUND`), and the error message **SHOULD** say the evidence would be filed where
+  nothing can read it, rather than claim the chain would reject it.
+- The CLI **MUST** refuse a dispute whose `disputes().arbitrated` is not `DisputeResolver`
+  (`DISPUTE_NOT_ADDRESSABLE`), and the message **MUST** name the owning arbitrable. The two codes
+  **MUST** stay distinct: a not-found ID may be worth retrying and a foreign one never is.
+
+The CLI **MUST** check `arbitrated` **before** trusting the mapping, and **MUST NOT** treat a
+mapping result of `0` as evidence of anything. `arbitratorDisputeIDToLocalID` is a public mapping
+getter: it returns the zero default for a key it has never seen rather than reverting, and **[live]**
+zero is itself a real local dispute ID — on the v2 testnet, core dispute 0 is local dispute 0. Every
+one of that deployment's 50 foreign disputes reads back as `0` and none as a nonzero value.
+
+A failed mapping read is **not** a missing local ID. A public mapping getter cannot revert, so the
+CLI **MUST** report it as `DEPLOYMENT_INCONSISTENT` rather than substituting a default.
+
+Neither read may cost a round trip: both take only the core dispute ID, so they **MUST** share the
+multicall that fetches the dispute record.
 
 ### 4.3 What the CLI must not do with evidence
 

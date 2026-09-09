@@ -75,6 +75,7 @@ export type {
 } from "./core/preflight.js";
 export {
   checkEffective,
+  checkEvidenceAddressable,
   checkEvidencePreflight,
   checkExtraData,
   checkPreflight,

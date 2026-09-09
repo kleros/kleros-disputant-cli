@@ -45,6 +45,10 @@ export type ErrorCode =
   | "INSUFFICIENT_BALANCE"
   // Evidence path — `spec/02 §4.2`
   | "DISPUTE_NOT_FOUND"
+  // The dispute exists, but another arbitrable created it, so this tool cannot
+  // name it in the identifier the evidence group is keyed by. Distinct from
+  // DISPUTE_NOT_FOUND on purpose: that ID may be retried, this one never can.
+  | "DISPUTE_NOT_ADDRESSABLE"
   // Post-send — `spec/02 §1.2`, `spec/01 §5`
   | "EFFECTIVE_MISMATCH"
   | "SIMULATION_REVERTED"

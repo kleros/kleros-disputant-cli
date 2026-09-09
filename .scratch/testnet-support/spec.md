@@ -27,7 +27,9 @@ The consequences, from the caller's point of view:
 A measurement taken while specifying this feature found a second, larger problem. On the v2 testnet
 the **core dispute ID and the external dispute ID diverge** — 42 of the 75 disputes created through
 `DisputeResolver` have unequal IDs, first at core 58 against external 33, verified against contract
-state as well as event logs. `submit-evidence` keys evidence on the core dispute ID. Where the two
+state as well as event logs. (Re-measured at a later block while implementing ticket 02: 77 resolver
+disputes of 127, 50 foreign across 25 arbitrables. The divergence point is unchanged, and
+`ADR-0014`'s table is the authority — these counts move with the chain.) `submit-evidence` keys evidence on the core dispute ID. Where the two
 differ, evidence is accepted, mined, and indexed under an identifier that nothing resolves.
 
 That is not a testnet problem. The code comment in the write path already says the equality holds
@@ -324,7 +326,9 @@ written to disk — and they are the reason it runs in separate processes.
 It is a release gate, not a CI job. It requires a funded testnet key and skips loudly when one is
 absent, in the manner the repo already uses for suites with an unmet prerequisite.
 
-**The existing fork suite is untouched.** Two of its tests seed state that Arbitrum One cannot
+**The existing fork suite is untouched** — except for one assertion, changed by ticket 02: test 7
+compared the emitted `Evidence` id against the core ID it passed in, which on this fork passes
+whichever identifier the CLI sends. It now reads the mapping back (`spec/05 §2.7`). Two of its tests seed state that Arbitrum One cannot
 provide — an overpayment, and a second arbitrable — and the testnet now supplies the second natively,
 with 26 foreign arbitrables and a live divergence. They are kept anyway: they are the only
 deterministic proof, and testnet state can change underneath us.

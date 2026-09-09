@@ -27,8 +27,9 @@ _Avoid_: analysis, judging, reasoning, case preparation
 Finding which disputes an address is a party to, what state they are in, which arbitrable is
 involved, and what the other side has already filed. Supplied upstream by `@kleros/agentkit`
 (`kleros dispute brief`, `dispute get`, `arbitrable classify`, `evidence list`); never performed
-here. The one exception is a read that could change the decision to sign, which is pre-flight, not
-discovery.
+here. The exceptions are pre-flight, not discovery: a read that could change the decision to sign,
+and the single read that decides *what* is signed — resolving the core dispute ID to the local one,
+because the alternative is a write that cannot be read back (`ADR-0014`).
 _Avoid_: monitoring, polling, research
 
 ### The claim
@@ -137,14 +138,20 @@ _Avoid_: ArbitrableProxy, the Dispute Resolver dapp, dapp, integration
 
 **Core dispute ID**:
 The global dispute identifier in `KlerosCore.disputes[]`, reported by the `DisputeCreation` event.
-**This is the ID `submitEvidence` takes as its first argument** — pass an arbitrable-local ID
-instead and the evidence lands on chain, is indexed under an ID nothing references, and is
-invisible in Court. It is not dropped; it is unreachable. `spec/02 §4.2`
+**This is the only dispute identifier the CLI's surface uses** — what `--dispute` takes and what
+every envelope reports. It is *not* what reaches `submitEvidence`: the CLI resolves it to the local
+dispute ID first, because that is what the evidence group is keyed by. Passing either number in the
+wrong place puts evidence on chain under an ID nothing references, invisible in Court. It is not
+dropped; it is unreachable. `spec/02 §4.2`, `ADR-0014`
 _Avoid_: dispute ID (unqualified — the ambiguity is the trap)
 
 **Local dispute ID**:
 The arbitrable's own index for a dispute, in its internal array. `arbitratorDisputeIDToLocalID`
-maps core → local. Needed only to read arbitrable-side state; it is never what `--dispute` takes.
+maps core → local, and returns the **zero default** for a dispute another arbitrable created — a
+default, not a mapping, and indistinguishable from local dispute 0, which is a real dispute. So the
+arbitrable is always checked first. **This is what `submitEvidence` receives**, and it is never what
+`--dispute` takes and never appears in an envelope: the CLI resolves it, signs it, and does not
+report it. `ADR-0014`
 _Avoid_: dispute ID (unqualified), internal ID, resolver ID
 
 **Evidence group ID**:
@@ -158,11 +165,12 @@ _Avoid_: evidence group (as a live concept), evidenceGroupID in the CLI surface
 
 **External dispute ID**:
 The third field of `DisputeResolver`'s `DisputeRequest` event, and what the Kleros Court web
-client resolves evidence by. **It is the local dispute ID** — verified on a fork seeded with a
-second arbitrable, where it read 220 against a core dispute ID of 224. On Arbitrum One all 216
-logs have them equal, because this resolver created *every* dispute that exists on the deployment,
-so no test against production can distinguish the three IDs. The CLI never exposes this one.
-`spec/01 §7`
+client resolves evidence by — for reading *and* for submitting. **It is the local dispute ID** —
+verified on a fork seeded with a second arbitrable, where it read 220 against a core dispute ID of
+224, and confirmed on the v2 testnet, where every evidence group's id lies in the local range and
+none in the core-only range. On Arbitrum One all 216 logs have them equal, because this resolver
+created *every* dispute that exists on the deployment, so no test against production can distinguish
+the three IDs. The CLI never exposes this one. `spec/01 §7`, `ADR-0014`
 _Avoid_: dispute ID (unqualified), foreign ID
 
 **Court**:

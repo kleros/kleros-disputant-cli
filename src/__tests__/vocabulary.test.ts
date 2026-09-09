@@ -45,9 +45,12 @@ const FORBIDDEN = [
   "plaintiff",
   "defendant",
   "prosecution",
-  // v1 / ERC-1497. There is no evidence group in v2's EvidenceModule; the first
-  // argument to `submitEvidence` is the core dispute ID. Both spellings, because
-  // the Solidity parameter was `_evidenceGroupID`.
+  // v1 / ERC-1497. Banned because the CLI must not expose the concept, not
+  // because the concept is absent: the subgraph really does group evidence, and
+  // the first argument to `submitEvidence` is the arbitrable's **local** dispute
+  // ID that keys the group — never the core dispute ID the CLI's surface uses
+  // (ADR-0014). Both spellings, because the Solidity parameter was
+  // `_evidenceGroupID`.
   "evidence group",
   "evidencegroup",
   // v1's name for what v2 calls the dispute template.

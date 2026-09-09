@@ -44,7 +44,12 @@ export type WriteCall =
     }
   | {
       functionName: "submitEvidence";
-      /** `(uint256 _externalDisputeID, string _evidence)` — the core dispute ID (`spec/02 §4.2`). */
+      /**
+       * `(uint256 _externalDisputeID, string _evidence)` — the **local** dispute
+       * ID, which is what the evidence group is keyed by. Not the core ID the
+       * caller passed: `runSubmitEvidence` resolves one to the other first
+       * (`spec/02 §4.2`, ADR-0014).
+       */
       args: readonly [bigint, string];
     };
 
