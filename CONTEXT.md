@@ -122,18 +122,35 @@ _Avoid_: extraData (unqualified — the ambiguity is the trap; dispute kits take
 
 ### The chain
 
+**Deployment**:
+One address set of the Kleros v2 contracts — its own arbitrator, dispute resolver, template
+registry and dispute kits, with its own ABIs, which are **not** interchangeable between deployments.
+A chain may host several: chain 421614 carries the v2 testnet, the v2 devnet and the university
+deployment, so **a chain ID does not name a deployment**. Named by a slug at every machine boundary
+(`arbitrum-one`, `arbitrum-sepolia-testnet`) and by its prose name in documentation ("v2 Beta",
+"v2 testnet"). `--chain` will keep the sibling CLI's flag name and select one of these — **specified
+in `ADR-0015`, not yet built**; today `arbitrum-one` is the only deployment served.
+_Avoid_: network, environment, instance; *chain* as a synonym for it (a chain hosts deployments —
+the flag is named for the one and selects the other); *mainnet* (the contracts package's own key for
+Arbitrum One, confined to the deployment module — to an agent that also reads `@kleros/agentkit`,
+mainnet is Ethereum)
+
 **Arbitrator**:
 `KlerosCore`, the contract that quotes the arbitration cost, holds disputes, draws jurors and
-delivers the ruling. One deployment per chain.
+delivers the ruling. **One per deployment** — not one per chain, which is a different count.
 _Avoid_: court (a court is one of its subdivisions), Kleros (unqualified)
 
 **Arbitrable**:
 The contract that asks for a ruling and receives `rule()`. For this tool it is always
-`DisputeResolver`, the generic permissionless arbitrable — because an EOA **cannot** call
-`KlerosCore.createDispute` directly: the deployed core enforces `arbitrableWhitelist`
-unconditionally and reverts with `ArbitrableNotWhitelisted()`. The v2 `DisputeResolver` *contract*
-is unrelated to the v1 "Dispute Resolver" dapp and to `ArbitrableProxy`; always qualify which one
-you mean.
+`DisputeResolver`, the generic permissionless arbitrable, on **every** deployment — one write path,
+one payload builder, one set of test vectors. That uniformity is what the routing decision rests on.
+The arbitrable whitelist is how the constraint was *discovered*, not what holds it: on v2 Beta an
+EOA cannot call `KlerosCore.createDispute` directly, because the deployed core enforces
+`arbitrableWhitelist` unconditionally and reverts with `ArbitrableNotWhitelisted()` — but that is a
+**property of that deployment**, not of Kleros v2. The same selector reverts bare on the v2 testnet,
+where the function does not exist. `spec/01 §3.1`, `ADR-0015`
+The v2 `DisputeResolver` *contract* is unrelated to the v1 "Dispute Resolver" dapp and to
+`ArbitrableProxy`; always qualify which one you mean.
 _Avoid_: ArbitrableProxy, the Dispute Resolver dapp, dapp, integration
 
 **Core dispute ID**:
@@ -174,9 +191,11 @@ the three IDs. The CLI never exposes this one. `spec/01 §7`, `ADR-0014`
 _Avoid_: dispute ID (unqualified), foreign ID
 
 **Court**:
-One of KlerosCore's subdivisions, IDs 1–34 on Arbitrum One, each with its own fee, juror count and
-period lengths. Selected through `extraData`. **Court 0 is never a valid target**: the decoder
-maps it to the General Court alongside any out-of-range ID, and it reads back all-zero.
+One of KlerosCore's subdivisions, each with its own fee, juror count and period lengths. Selected
+through `extraData`. **IDs 1–34 on v2 Beta**, counted there and nowhere else — every deployment has
+its own set, which is why court existence is probed live rather than tabled. **Court 0 is never a
+valid target**: the decoder maps it to the General Court alongside any out-of-range ID, and it reads
+back all-zero.
 _Avoid_: subcourt (the v1 name), tribunal, chamber
 
 **Dispute kit**:
@@ -215,5 +234,10 @@ on chain, so it is an operator responsibility and not a guarantee this tool make
 _Avoid_: voter, operator, agent
 
 **Neo**:
-The name of the Arbitrum One production deployment, as in `DisputeKitClassicNeo`. A deployment
-name, not a contract.
+Upstream's suffix for the Arbitrum One contract set, as in `DisputeKitClassicNeo`. A **technical
+codename**: it names an artifact, not a contract and not a deployment anyone types. Its only place
+is a code comment where an artifact name is the subject, and it reaches **no** CLI surface — the
+slug is `arbitrum-one` and the prose name is "v2 Beta". Note that the *contracts package* does not
+use the suffix: its `arbitrum` keys are the bare `KlerosCore`, `DisputeResolver`, so looking up
+`KlerosCoreNeo` there finds nothing. `ADR-0015`
+_Avoid_: Neo in help text, messages, envelopes, CTAs or `README.md`

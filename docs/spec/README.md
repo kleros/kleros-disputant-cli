@@ -61,7 +61,7 @@ orientation, and read
 
 | Marker | Meaning |
 | --- | --- |
-| **[live]** | Verified by `eth_call` or `eth_getLogs` against Arbitrum One on **2026-09-08**, at block `503066782` (chain time `1788881785`), unless the claim cites its own later block. Reproduce with [05 §4](./05-verification.md) |
+| **[live]** | Verified by `eth_call` or `eth_getLogs` against Arbitrum One on **2026-09-08**, at block `503066782` (chain time `1788881785`), unless the claim cites its own later block — or its own **deployment** and block, which is how a v2 testnet read is marked ([ADR-0015](../adr/0015-a-deployment-is-not-a-chain.md)). Reproduce with [05 §4](./05-verification.md) |
 | **[fork]** | Verified against the **deployed bytecode** on an Arbitrum One fork, in a state the chain could reach but has not — an overpayment, a second arbitrable. Reproduce with `pnpm test:fork` ([05 §2](./05-verification.md)) |
 | **[abi]** | Read from `@kleros/kleros-v2-contracts@2.0.0-rc.2`, `cjs/deployments`. These ABIs are the deployed ones |
 | **[computed]** | Produced locally by `viem` and reproducible offline — selectors, encodings, hashes |

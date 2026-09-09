@@ -74,7 +74,7 @@ would add a surface without adding a choice.
 
 | Option | Required | Notes |
 | --- | --- | --- |
-| `--court` | yes | Court ID, `1..34`. `0` is refused |
+| `--court` | yes | Court ID. `1..34` on v2 Beta — the range is that deployment's, and existence is probed live rather than tabled. `0` is refused |
 | `--jurors` | yes | Juror count, `>= 1` |
 | `--kit` | no | Dispute kit ID. Defaults to `1` (Classic), the kit every court supports. Some courts support others as well, so this is a scope choice and **MUST NOT** be written as a claim that no other kit is supported anywhere |
 | `--template-file` | yes | Path to the dispute template JSON. Validated strictly ([02 §3.2](./02-payload-construction.md)) |
@@ -264,7 +264,7 @@ specification and **MUST NOT** be renamed.
 
 | Code | Raised when |
 | --- | --- |
-| `WRONG_CHAIN` | `eth_chainId != 42161` |
+| `WRONG_CHAIN` | `eth_chainId` is not the selected deployment's expected chain ID |
 | `COURT_OUT_OF_RANGE` | `--court` is `0`, or `getTimesPerPeriod(courtID)` reverts |
 | `COURT_DISABLED` | `courts(courtID).disabled` |
 | `JURORS_INVALID` | `--jurors < 1` |
@@ -306,16 +306,43 @@ specification and **MUST NOT** be renamed.
 
 ## 7. Startup checks
 
-Ordering is a safety property, not style. Every command that touches the chain **MUST** run these
-in order. `upload-file` runs **none** of them, because it makes no chain call for them to protect
-([06 §1](./06-attachment-upload.md)):
+Ordering is a safety property, not style. The invariant is **no contract call before the chain
+assertion** ([ADR-0015](../adr/0015-a-deployment-is-not-a-chain.md)). Every command that touches the
+chain **MUST** run these in order. `upload-file` runs **none** of them, because it makes no chain
+call for them to protect ([06 §1](./06-attachment-upload.md)):
 
-1. **`eth_chainId == 42161`.** Strictly before any deployment registry lookup — a registry lookup
-   is scoped to a deployment, and trusting it on an unverified chain reads the wrong core.
-2. Resolve addresses from the contracts package for chain 42161.
-3. Assert `DisputeResolver.arbitrator()` and `.templateRegistry()` match the resolved addresses.
-4. Read `version()` where available and **warn** on a mismatch. Never fail.
-5. Only then, command-specific pre-flight.
+1. Resolve the **deployment**: the one the caller named, or the default when no option carries one.
+   Local and offline; a deployment this tool does not serve **MUST** be refused here with
+   `CHAIN_NOT_SUPPORTED`, before any network contact.
+2. Read that deployment's addresses, ABIs and expected chain ID from the contracts package. Local
+   and offline. [ADR-0006](../adr/0006-deployment-imported-from-contracts-package.md)
+3. **`eth_chainId` MUST equal the selected deployment's expected chain ID.** This is the first
+   network call, and no resolved address may reach the network before it.
+4. Assert `DisputeResolver.arbitrator()` and `.templateRegistry()` match the resolved addresses.
+   This is the first contract call.
+5. Read `version()` where available and **warn** on a mismatch. Never fail.
+6. Only then, command-specific pre-flight.
+
+**Why the rule is about contract calls and not about the registry lookup.** It used to read
+"`eth_chainId` strictly before any deployment registry lookup". That was a proxy for the real
+property. Resolving an address from a package on disk is a local act; *using* it on an unverified
+chain is the hazard. The lookup had to come second only while the deployment was inferred **from**
+the chain ID — which made the assertion's input the lookup's input. Once the caller names the
+deployment, steps 1 and 2 move ahead of the assertion and nothing is weakened: no address reaches
+the network until step 3 has passed, and step 3 is stronger than the constant it replaces, because
+it is read from the selected deployment rather than written down.
+
+**What the chain assertion cannot do, and why that is not a gap.** A chain ID does not identify a
+deployment — chain 421614 hosts at least three
+([ADR-0015](../adr/0015-a-deployment-is-not-a-chain.md)) — so step 3 cannot tell the v2 testnet from
+the devnet. It does not have to. **The endpoint does not choose the contracts; step 2 does.** Every
+deployment on a chain is reachable from any endpoint serving that chain, so a mis-pointed endpoint
+can only be wrong about the *chain*, which is exactly what step 3 catches.
+
+Step 4 protects something else, and is worth keeping for it: that the resolved addresses are
+mutually consistent — `DisputeResolver.arbitrator()` **MUST** be the core step 2 resolved. That
+catches a stale or mis-keyed registry entry and an upstream redeployment, not a mis-pointed
+endpoint.
 
 ## 8. Architecture
 

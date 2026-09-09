@@ -125,8 +125,9 @@ dispute ID — this table said the local one until that fork ran. See
 
 ## Normative summary
 
-- The CLI **MUST** assert `eth_chainId == 42161` at runtime, and **MUST** do so **before** any
-  deployment registry lookup.
+- The CLI **MUST** assert at runtime that `eth_chainId` equals the selected deployment's expected
+  chain ID, and **MUST** make **no contract call** before that assertion passes
+  ([03 §7](./03-cli-surface.md), [ADR-0015](../adr/0015-a-deployment-is-not-a-chain.md)).
 - The CLI **MUST** validate the court ID, the juror count and the dispute kit ID locally, and
   **MUST** refuse with a named code rather than let `KlerosCore`'s decoder substitute a default.
 - The CLI **MUST** call `isSupported(courtID, disputeKitID)` on every invocation and **MUST NOT**

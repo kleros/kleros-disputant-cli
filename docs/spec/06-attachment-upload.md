@@ -16,7 +16,7 @@ every **[live]** and **[fork]** claim in this document set.
 
 `upload-file` **MUST NOT** sign, read the chain, or load a signing key. It **MUST NOT** call
 `prepare()`, assert `eth_chainId`, or resolve the deployment: there is no chain interaction here,
-so the 42161 assertion of [03 §7](./03-cli-surface.md) has nothing to scope.
+so the chain assertion of [03 §7](./03-cli-surface.md) has nothing to scope.
 
 It **MUST** upload exactly one file per invocation, and **MUST NOT** be reachable from
 `create-dispute` or `submit-evidence`. Those two commands **MUST NOT** open a socket to anything

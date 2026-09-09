@@ -481,9 +481,11 @@ selector alone would pass unchanged against a beta upgraded to the devnet shape,
 of the argument had moved underneath it — so [05 §1.6](./05-verification.md) pins the parameter
 name as well.
 
-Note also that **a chain ID does not identify a deployment**: testnet and devnet are both 421614.
-That is a second, independent reason [03 §7](./03-cli-surface.md) asserts 42161 and then selects
-`mainnetViem` explicitly, rather than resolving a deployment from the chain ID.
+Note also that **a chain ID does not identify a deployment**: **[abi]** testnet, devnet and the
+university deployment are all 421614. That is a second, independent reason [03 §7](./03-cli-surface.md) has the
+caller name the deployment and then asserts the chain ID *that deployment* expects, rather than
+resolving a deployment from the chain ID
+([ADR-0015](../adr/0015-a-deployment-is-not-a-chain.md)).
 
 **[inferred]** The rename lives on upstream `dev`, not on `master`, and `master` is what is deployed
 to both Arbitrum One and the v2 testnet — each reports `EvidenceModule.version()` `0.8.0`, which is
@@ -518,7 +520,7 @@ selectors **[computed]**.
 
 | Call | Contract | Used for |
 | --- | --- | --- |
-| `eth_chainId` | — | The chain assertion. **Runs before every registry lookup** |
+| `eth_chainId` | — | The chain assertion. **No contract call may precede it** |
 | `courts(uint256) → (parent, hiddenVotes, minStake, alpha, feeForJuror, jurorsForCourtJump, disabled)` | `KlerosCore` | Court exists, is not disabled, and the fee that explains the quote |
 | `isSupported(uint96, uint256) → bool` | `KlerosCore` | Kit is enabled in that court. **Never cached** |
 | `arbitrationCost(bytes) → uint256` | `KlerosCore` | The exact value to send. **Overloaded** — see below |

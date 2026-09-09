@@ -84,9 +84,10 @@ wins and is named.
 - **incur's error envelope is closed.** A fact the caller needs goes in `message`, in
   `details.hint` (appended to `message`), or in the `cta` — and nowhere else. **No output mode
   renders `details`**, so any other key on it is invisible to callers. `ADR-0013`
-- **Chain 42161 only**, enforced as a runtime `eth_chainId` assertion and not merely a viem
-  `chain:` field — and asserted **before** any deployment registry lookup, which is scoped to a
-  deployment and reads the wrong core on an unverified chain. `spec/03 §7`
+- **A chain ID does not name a deployment** — at least three share 421614. What is pinned is a
+  deployment: the `eth_chainId` assertion is a runtime check against *that deployment's* expected
+  ID, never a viem `chain:` field, and **no contract call may precede it**. One is served today,
+  `arbitrum-one`; there is no `--chain` yet. `ADR-0015`, `spec/03 §7`
 - **Discovery happens upstream**, in `@kleros/agentkit`. Reads here are limited to what is needed
   to **refuse a bad write** — or, in exactly one case, to decide **what** is signed, where the
   alternative is a write that cannot be read back. A read that does neither does not belong here.
