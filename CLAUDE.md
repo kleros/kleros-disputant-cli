@@ -25,15 +25,17 @@ are written; `upload-file` was added out of build order on maintainer instructio
 against the live endpoint**. Nothing published to npm, and **no transaction broadcast on Arbitrum
 One**. Next is **v2 testnet support**, specced and ticketed in `.scratch/testnet-support/`: it
 precedes the acceptance test (step 14), which moves from a pinned fork to the live testnet and whose
-`pnpm test:acceptance` still points at a file that does not exist. Ticket 02 is done — the evidence
-identifier defect, which was a **Beta** defect the testnet exposed, not testnet scope (`ADR-0014`).
+`pnpm test:acceptance` still points at a file that does not exist. Tickets 01 and 02 are done — the
+deployment model (`ADR-0015`), and the evidence identifier defect, which was a **Beta** defect the
+testnet exposed, not testnet scope (`ADR-0014`). Ticket 03 is next and unblocked.
 Build order: `HANDOFF §10` — where the skill is step 12 and the README step 13, not the reverse.
 
 ```
 pnpm test             # unit + guard tests. A suite whose prerequisite is absent self-skips loudly
 pnpm test:fork        # spawn an Arbitrum One fork on :8546 and run only the fork tests.
                       # The only tests that broadcast, and the only ones that can seed the state
-                      # production lacks: an overpayment, and a second arbitrable
+                      # production lacks: an overpayment, and a second arbitrable.
+                      # Free :8546 first — docs/knowledge/fork-harness-port-8546.md
 pnpm test:acceptance  # full lifecycle on a pinned fork; needs an archive RPC
 pnpm typecheck
 pnpm lint             # biome check .   (`pnpm exec biome check --write .` to fix)
@@ -148,6 +150,8 @@ blocks. Core never throws. `ADR-0001`, `spec/03 §8`
 - `docs/adr/` — one file per decision a reader would otherwise question. Numbers 0003 and 0005 are
   **deliberately unused**: juror-only decisions this repo never made, left as gaps so that
   `ADR-0004` means the same thing in both repos.
+- `docs/knowledge/` — traps that fit nowhere else: what a green fork run may not prove, and why an
+  elided address must never be expanded by hand.
 - `docs/agents/domain.md` — the convention the engineering skills follow.
 
 The **CLI surface is machine-checked** against the glossary: `vocabulary.test.ts` renders `--help`,
