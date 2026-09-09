@@ -23,8 +23,9 @@ the five commands on incur, and `spec/05 §2`'s seven fork tests, which **broadc
 settled three of Appendix A's five unverified claims. The skill (step 12) and `README.md` (step 13)
 are written; `upload-file` was added out of build order on maintainer instruction and **has run
 against the live endpoint**. Nothing published to npm, and **no transaction broadcast on Arbitrum
-One**. The acceptance test (step 14, `spec/05 §3`) is next: `pnpm test:acceptance` still points at a
-file that does not exist.
+One**. Next is **v2 testnet support**, specced and ticketed in `.scratch/testnet-support/`: it
+precedes the acceptance test (step 14), which moves from a pinned fork to the live testnet and whose
+`pnpm test:acceptance` still points at a file that does not exist.
 Build order: `HANDOFF §10` — where the skill is step 12 and the README step 13, not the reverse.
 
 ```
