@@ -45,6 +45,86 @@ the calls is payable. Three edits, at bootstrap, before anything depends on the 
 Kept verbatim: `FeePlan`, the `150/100` gas buffer, `MAX_FEE_MULTIPLIER = 3n`,
 `maxPriorityFeePerGas: 0n`, and `waitBounded`.
 
+### 2.1 The gas estimate MUST pass the account as a bare address
+
+Change 3 is not sufficient on its own, because the node runs the same arithmetic first and wins.
+
+**[live]** Measured on Arbitrum One on 2026-09-09, with `eth_estimateGas` against one funded and
+one zero-balance address: the node applies a balance precheck to **every** estimate, and the
+formula depends on what the caller sent.
+
+| `value` | fee fields | outcome |
+| --- | --- | --- |
+| `balance / 2` | absent or present | succeeds |
+| `balance` | absent | **succeeds** |
+| `balance` | present | fails, `insufficient funds for transfer` |
+| `balance * 2` | absent | fails, `insufficient funds for gas * price + value: …have…want…` |
+| `balance * 2` | present | fails, `insufficient funds for transfer` |
+
+So the precheck is `gas * maxFeePerGas + value <= balance`, and the `gas * maxFeePerGas` term is
+present only when the caller populated the fee fields. It is **not** true that a bare address makes
+the node skip the check; the check reduces to `value <= balance`.
+
+viem populates those fields whenever it is handed an `Account` object. The gate is *not* whether
+`prepareTransactionRequest` runs — it runs for both shapes — but which parameters it is told to
+fill: a local account gets viem's full default set (`fees`, `nonce`, `gas`, `chainId`, `type`,
+`blobVersionedHashes`), while a bare address is scoped to `blobVersionedHashes` alone and therefore
+fills nothing. So an `Account` object here **throws**
+for any account that cannot cover the transaction, `checkBalance` never runs, and the caller gets
+`RPC_ERROR` — exit 2, "the chain or the RPC failed" — for what is a local refusal that should be
+`INSUFFICIENT_BALANCE` at exit 1.
+
+The estimate therefore **MUST** pass `account` as a bare address. `value` still travels to all
+three calls, which is what the reduced precheck weighs.
+
+The other two keep the full account, for different reasons. `writeContract` **requires** it: the
+wallet client signs locally, and a bare address would route to `eth_sendTransaction` on a node that
+holds no key. `simulateContract` does **not** require it — viem's `account` there accepts an
+`Address` — so passing the full object is a deliberate choice, not a constraint: simulation is the
+one call whose job is to answer "would this exact sender's call succeed", and narrowing it to an
+address for symmetry with the estimate would be a change with no benefit.
+
+The reduced precheck is then `value <= balance`. On the paying path `checkValueAffordable`
+(`cost.ts`, called from `create-dispute` **before** `simulateAndMaybeBroadcast` is entered) has
+already guaranteed exactly that — note this is *not* change 3's `checkBalance` from §2, which runs
+after the estimate and so cannot be what guarantees it. `submit-evidence` does not call
+`checkValueAffordable` at all and does not need to: it sends no `value`, so the reduced precheck is
+`0 <= balance`.
+
+**The gas number is unchanged by this.** The obvious objection is that Nitro folds the L1 calldata
+cost into the returned gas as roughly `posterCost / gasPrice`, so dropping the named price should
+inflate the L1 component. **[live]** Measured on Arbitrum One on 2026-09-09, `submitEvidence` at
+four calldata sizes against three fee caps:
+
+| calldata | no fee fields | `3 ×` base fee | `0.1` gwei |
+| --- | --- | --- | --- |
+| 260 B | 33 268 | 33 268 | 33 266 |
+| 4 132 B | 128 798 | 128 799 | 128 797 |
+| 20 132 B | 524 484 | 524 486 | 524 484 |
+| 60 132 B | 1 519 592 | 1 519 592 | 1 519 591 |
+
+Across a 230× range of calldata and a 30× range of named price, the estimates agree to within two
+gas. The L1 component does not scale with the price the caller names, so `estimatedFeeWei`
+(`gas * maxFeePerGas`, computed from `estimateFeesPerGas` either way) is unaffected and no account
+is refused that could previously have paid.
+
+What the bare address *does* drop besides the fee fields is `nonce`, which `prepareTransactionRequest`
+would have filled. Estimation does not check nonces, and the measurements above are taken with it
+absent.
+
+Two consequences worth stating, because both were believed otherwise:
+
+- The precheck **always counts `value`**, so `create-dispute` was affected exactly as
+  `submit-evidence` was. The external test session that found this could not measure it and
+  recorded it as inferred; it is now
+  measured.
+- There are **two** distinct node messages for this one condition, so classifying the failure by
+  sniffing the cause string is not sound. The ordering fix is the one that holds.
+
+A test double for the estimate **MUST** model this precheck — see [05 §1.5](./05-verification.md).
+Without it, a suite asserting `INSUFFICIENT_BALANCE` passes while exercising a path a real node
+makes unreachable, which is what happened.
+
 `waitBounded` is subtle and hard-won. `waitForTransactionReceipt` has open reports of never
 settling when a hash is never found, and of polling handles outliving a timeout, so it is raced
 against an independent, **`unref`'d** timer — which is what lets the process exit. `confirmations: 1`

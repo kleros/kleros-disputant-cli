@@ -127,13 +127,48 @@ export function ctaFor(code: ErrorCode, context: CtaContext): CtaBlock | undefin
         ],
       };
     case "COST_CEILING_EXCEEDED":
-    case "INSUFFICIENT_BALANCE":
       return {
         description: "The arbitration fee is paid on creation and cannot be recovered.",
         commands: [
           { command: quoteCommand(context), description: "Quote the fee without committing to it" },
         ],
       };
+    /**
+     * **The two paths refuse for different reasons and need different words.**
+     *
+     * `submit-evidence` pays no arbitration fee, so quoting one back would
+     * name a cost the caller is not being asked for and point at a command
+     * that cannot change the outcome — the shortfall there is gas, and the
+     * only remedy is ETH in the account. The paying path keeps the fee CTA.
+     *
+     * Reachable on the evidence path only since the estimate stopped
+     * pre-empting the check (`spec/04 §2.1`); before that this branch could
+     * not fire at all, which is why it read as if creation were the only case.
+     */
+    case "INSUFFICIENT_BALANCE":
+      // `court` is a **proxy** for "this command quotes a fee", not the fact
+      // itself: it is required on `arbitration-cost` and `create-dispute` and
+      // absent on `submit-evidence`, which passes only `dispute` (`cli.ts`).
+      // Of those three only `create-dispute` can reach this code at all —
+      // `arbitration-cost` signs nothing — so the proxy is exact today. A
+      // future signing command taking a `--court` would inherit the fee CTA,
+      // which is the thing to check when adding one.
+      //
+      // On the evidence path the only remedy is funding the account, and incur
+      // prefixes the binary name onto every CTA command, so a CTA can only
+      // name a subcommand of this CLI. None adds ETH, so the remedy travels in
+      // `details.hint` (`spec/03 §5.4`).
+      return context.court === undefined
+        ? undefined
+        : {
+            description: "The arbitration fee is paid on creation and cannot be recovered.",
+            commands: [
+              {
+                command: quoteCommand(context),
+                description: "Quote the fee without committing to it",
+              },
+            ],
+          };
     case "KEY_FILE_MISSING":
     case "KEY_FILE_PERMISSIONS":
     case "KEY_FILE_UNREADABLE":

@@ -184,7 +184,7 @@ or its outcome · `4` signing key.
 | `POLICY_URI_INVALID` | `policyURI` must be a multiaddr such as `/ipfs/Qm…`. A plain `https://` URL is refused, because the Kleros Court web client's own schema refuses it |
 | `EVIDENCE_INVALID` | The message names the trap: a bare URI where the document belongs (put it in `--file-uri`), `title` where the field is `name`, a blank `name` or `description`, both of them reading stdin, or an unreadable `@path` |
 | `COST_CEILING_EXCEEDED` | The quote is above `--max-cost-eth`. Raise the ceiling only if that price is intended; the cost is paid on creation and cannot be recovered |
-| `INSUFFICIENT_BALANCE` | The account cannot cover the arbitration cost, or the cost plus estimated gas. Fund it with ETH on Arbitrum One — it sends its own transactions and there is no relayer |
+| `INSUFFICIENT_BALANCE` | The account cannot cover the arbitration cost, or the cost plus estimated gas. Reaches `submit-evidence` too, where the whole shortfall is gas. Fund it with ETH on Arbitrum One — it sends its own transactions and there is no relayer |
 | `DISPUTE_NOT_FOUND` | No dispute uses that ID. `--dispute` takes the core dispute ID, the one Kleros Court shows — not a local or external one |
 | `FILE_UNREADABLE`, `FILE_EMPTY` | `--file` takes one readable, non-empty regular file. The endpoint pins exactly one file per request |
 | `FILE_TOO_LARGE` | The practical ceiling is around 4.6 MB of file. Split or compress it, and submit one document per file |
@@ -198,7 +198,7 @@ spent: `upload-file` holds no key.
 | --- | --- |
 | `WRONG_CHAIN` | The endpoint is not Arbitrum One. Point `--rpc-url` at chain 42161 |
 | `DEPLOYMENT_INCONSISTENT` | The deployment does not match what this tool was built against — stop rather than work around it. One variant means a transaction *was* mined but the arbitrator emitted no creation event: the cost is spent, so read that transaction before creating anything else |
-| `RPC_ERROR` | A read or an estimate failed. **Ambiguous today:** a genuine endpoint failure, a rate limit and an account that cannot afford the transaction all surface here, and the underlying cause is not rendered in any output mode. If the message names gas or fee estimation, check the account balance before blaming the endpoint. `--rpc-url` takes a comma-separated list for failover |
+| `RPC_ERROR` | A read or an estimate failed. The message ends with `The endpoint said: …`, quoting the node — branch on that to tell a dead endpoint from a rate limit. An account that cannot pay is no longer one of these: it is `INSUFFICIENT_BALANCE` at exit 1. `--rpc-url` takes a comma-separated list for failover |
 | `BROADCAST_FAILED` | The node refused the signed transaction, so nothing was submitted and there is no hash. Read the message before re-running |
 | `UPLOAD_FAILED` | The pinning endpoint failed, or returned success having pinned nothing. Nothing was uploaded — with one exception the message states outright: a success status carrying a body that is not JSON, where nothing can be concluded about whether the file was pinned. Re-running is safe either way, because identical bytes address the same CID |
 | `UPLOAD_MISMATCH` | The returned CID does not address the bytes that were sent. **Do not submit that `fileURI`.** Re-run the upload; if it recurs the endpoint is truncating and is unsafe |

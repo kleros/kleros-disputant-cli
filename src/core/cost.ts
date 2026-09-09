@@ -32,6 +32,16 @@ export type QuoteAssessment = {
 };
 
 /**
+ * The remedy for both `INSUFFICIENT_BALANCE` refusals.
+ *
+ * A hint rather than a CTA: incur prefixes the binary name onto every CTA
+ * command, so a CTA can only name a subcommand of this CLI, and none of them
+ * adds ETH. The account sends its own transactions; there is no relayer
+ * (`spec/03 §5.4`).
+ */
+const FUND_HINT = "Fund the signing account with ETH on Arbitrum One.";
+
+/**
  * The ceiling is an operator input with a conservative default, and it is
  * checked the moment the quote arrives — **before** `simulateContract` is
  * issued, so a refusal costs nothing and reveals nothing.
@@ -101,7 +111,14 @@ export function checkValueAffordable({
       "INSUFFICIENT_BALANCE",
       `The account holds ${formatWeiAsEth(balanceWei)} ETH and the arbitration fee alone is ` +
         `${formatWeiAsEth(valueWei)} ETH, before any gas. Nothing was sent.`,
-      { balanceWei: balanceWei.toString(), valueWei: valueWei.toString() },
+      {
+        balanceWei: balanceWei.toString(),
+        valueWei: valueWei.toString(),
+        // The same remedy as `checkBalance`. This is the refusal a broke
+        // create-dispute caller actually hits first, so omitting it here would
+        // put the hint only on the path that never fires.
+        hint: FUND_HINT,
+      },
     );
   }
   return ok({ balanceWei });
@@ -125,16 +142,36 @@ export function checkBalance({
 }): KlerosResult<{ requiredWei: bigint }> {
   const requiredWei = estimatedFeeWei + valueWei;
   if (balanceWei < requiredWei) {
+    /**
+     * The unpayable call is not always a paying one. `submitEvidence` sends no
+     * `value`, so naming a `0 ETH` arbitration cost there describes a fee the
+     * caller was never asked for. Reachable since the gas estimate stopped
+     * pre-empting this check (`spec/04 §2.1`); before that only the paying
+     * path could reach it, which is why one sentence covered both.
+     *
+     * The branch describes the **amount**, not the command. This function is
+     * exported and takes no notion of which call it is pricing, so a sentence
+     * naming `submit-evidence` would be a lie the day a court quotes zero.
+     */
+    const breakdown =
+      valueWei === 0n
+        ? `${formatWeiAsEth(estimatedFeeWei)} ETH of estimated gas, and this call sends no ` +
+          "arbitration fee"
+        : `${formatWeiAsEth(valueWei)} ETH of arbitration cost plus ` +
+          `${formatWeiAsEth(estimatedFeeWei)} ETH of estimated gas`;
+
     return err(
       "INSUFFICIENT_BALANCE",
       `The account holds ${formatWeiAsEth(balanceWei)} ETH and needs ` +
-        `${formatWeiAsEth(requiredWei)} ETH: ${formatWeiAsEth(valueWei)} ETH of arbitration cost ` +
-        `plus ${formatWeiAsEth(estimatedFeeWei)} ETH of estimated gas. Nothing was sent.`,
+        `${formatWeiAsEth(requiredWei)} ETH: ${breakdown}. Nothing was sent.`,
       {
         balanceWei: balanceWei.toString(),
         requiredWei: requiredWei.toString(),
         valueWei: valueWei.toString(),
         estimatedFeeWei: estimatedFeeWei.toString(),
+        // The account sends its own transactions; there is no relayer, and no
+        // subcommand of this CLI can add ETH — so this is a hint, not a CTA.
+        hint: FUND_HINT,
       },
     );
   }

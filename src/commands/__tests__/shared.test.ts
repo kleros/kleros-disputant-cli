@@ -280,3 +280,24 @@ describe("prepareLocal", () => {
     expect(result.success && result.data.rpcUrls).toEqual(["https://a.test", "https://b.test"]);
   });
 });
+
+/**
+ * `spec/04 §2.1` made this branch reachable, and reaching it showed the
+ * words were wrong: `submit-evidence` pays no arbitration fee, so quoting one
+ * back names a cost the caller was never asked for.
+ */
+describe("the balance CTA follows the path, not the code", () => {
+  it("offers the fee quote only where a fee is actually paid", () => {
+    const paying = ctaFor("INSUFFICIENT_BALANCE", { court: "1", jurors: "3", kit: "1" });
+
+    expect(paying?.commands[0]?.command).toBe("arbitration-cost --court 1 --jurors 3 --kit 1");
+    expect(paying?.description).toContain("arbitration fee");
+  });
+
+  it("offers nothing on the evidence path, because no subcommand adds ETH", () => {
+    // incur prefixes the binary name onto every CTA command, so a CTA can only
+    // name a subcommand of this CLI. The remedy is funding the account, which
+    // is not one — it travels in `details.hint` (`spec/03 §5.4`).
+    expect(ctaFor("INSUFFICIENT_BALANCE", { dispute: "1" })).toBeUndefined();
+  });
+});

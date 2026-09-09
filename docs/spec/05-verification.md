@@ -56,6 +56,15 @@ out-of-range court is reported as such rather than as an unsupported kit.
 - A quote above `--max-cost-eth` refuses **before** any simulate call is issued.
 - The balance check is `balance < estimatedFee + value`, asserted with a `value` large enough that
   the old comparison would pass.
+- **Every double standing in for `eth_estimateGas` MUST model the node's balance precheck**
+  (`04 §2.1`): reject when `value + (fee fields present ? gas * maxFeePerGas : 0) > balance`.
+  Without it a suite asserting `INSUFFICIENT_BALANCE` passes while exercising a path a real node
+  makes unreachable, which is what happened — `broadcast.test.ts` asserted that refusal and was
+  green for as long as the defect existed.
+- At least one test **MUST** reach that refusal through a double that speaks **JSON-RPC**, so viem
+  builds the request itself. A double that stubs `estimateContractGas` directly cannot falsify a
+  claim about which account shape viem populates fee fields for, and that claim is what the
+  refusal's reachability rests on.
 
 ### 1.6 Deployment fingerprint
 

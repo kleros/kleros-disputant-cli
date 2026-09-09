@@ -140,7 +140,30 @@ export async function simulateAndMaybeBroadcast(
   let maxFeePerGas: bigint;
   try {
     const [estimated, fees] = await Promise.all([
-      client.estimateContractGas(request),
+      /**
+       * **The account is passed as a bare address here, and only here.**
+       *
+       * `request` carries a `PrivateKeyAccount`, and viem answers that by
+       * running `prepareTransactionRequest` first, which populates the fee
+       * fields. The node then applies its own
+       * `gas * maxFeePerGas + value <= balance` precheck and **throws** — so
+       * `checkBalance` below could never run, and an account that cannot pay
+       * came back as `RPC_ERROR` (exit 2, "the chain or the RPC failed") when
+       * the true answer is `INSUFFICIENT_BALANCE` (exit 1, "nothing was
+       * sent"). A bare address is a JSON-RPC account to viem, so preparation
+       * fills nothing: no fee fields, and the precheck collapses to
+       * `value <= balance`,
+       * which `checkValueAffordable` has already guaranteed on the paying
+       * path. The estimate then returns a real number for an account with no
+       * ETH at all, and the refusal below is reachable.
+       *
+       * **[live]** Measured on Arbitrum One, 2026-09-09, one zero-balance
+       * address and one `eth_estimateGas`: as an `Account` object it fails
+       * with `insufficient funds for transfer`; as a bare address it returns
+       * `21345`. `value` still reaches the estimate — it is spread from
+       * `request` and is what the reduced precheck weighs.
+       */
+      client.estimateContractGas({ ...request, account: account.address }),
       client.estimateFeesPerGas(),
     ]);
     gas = (estimated * GAS_BUFFER_NUMERATOR) / GAS_BUFFER_DENOMINATOR;

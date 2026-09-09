@@ -193,9 +193,41 @@ export async function startFakeChain(options: FakeChainOptions = {}): Promise<Fa
           case "eth_getBalance":
             result = toHex(options.balanceWei ?? 10n ** 18n);
             break;
-          case "eth_estimateGas":
-            result = toHex(options.gas ?? 700_000n);
+          /**
+           * **Models the node's balance precheck** — `spec/04 §2.1`.
+           *
+           * **[live]** Measured on Arbitrum One, 2026-09-09: `eth_estimateGas`
+           * always weighs `value`, and adds a `gas * maxFeePerGas` term only
+           * when the caller populated the fee fields. viem fills them for an
+           * `Account` object and fills nothing for a bare address —
+           * `prepareTransactionRequest` runs either way, but a bare address
+           * scopes it to fill nothing — which is why `broadcast.ts` passes the
+           * address there.
+           *
+           * Without this, an unfundable account got a gas figure from the fake
+           * and `INSUFFICIENT_BALANCE` from the tool, while a real node threw
+           * and produced `RPC_ERROR` instead. The tests read green against
+           * behaviour the chain does not produce.
+           */
+          case "eth_estimateGas": {
+            const gas = options.gas ?? 700_000n;
+            const tx = (params[0] ?? {}) as { value?: Hex; maxFeePerGas?: Hex };
+            const balance = options.balanceWei ?? 10n ** 18n;
+            const value = tx.value ? BigInt(tx.value) : 0n;
+            const feeTerm = tx.maxFeePerGas ? gas * BigInt(tx.maxFeePerGas) : 0n;
+            if (balance < value + feeTerm) {
+              // The node's own two wordings, which differ by whether the fee
+              // fields were sent. Kept identical to `broadcast.test.ts`'s
+              // double and to the table in `spec/04 §2.1`, so the two doubles
+              // cannot drift into describing different nodes.
+              error = tx.maxFeePerGas
+                ? "insufficient funds for transfer"
+                : "insufficient funds for gas * price + value";
+              break;
+            }
+            result = toHex(gas);
             break;
+          }
           case "eth_gasPrice":
             result = toHex(20_000_000n);
             break;

@@ -509,6 +509,30 @@ describe("submit-evidence", () => {
       disputes: () => [1n, KLEROS_CORE.address, period, ruled, 1_756_900_000n],
     });
 
+  /**
+   * **The one test that drives real viem over HTTP at a node that prechecks.**
+   *
+   * `spec/04 §2.1`'s reproduction, end to end: a signer with no ETH,
+   * `submit-evidence`, no `--broadcast`. Everything else covering this runs
+   * against a hand-written `estimateContractGas` double, which cannot falsify
+   * a claim about viem's own account-shape behaviour — this can, because
+   * `fake-chain` speaks JSON-RPC and viem builds the request itself.
+   *
+   * Against the old code the node's precheck fires, `estimateContractGas`
+   * throws, and this comes back `RPC_ERROR` at exit 2.
+   */
+  it("names an unfunded signer, rather than blaming the endpoint", async () => {
+    const node = await chain({ core: inEvidencePeriod(), balanceWei: 0n });
+    const result = await runSubmitEvidence({ ...base(), rpcUrl: node.url });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.code).toBe("INSUFFICIENT_BALANCE");
+    expect(result.message).toContain("no arbitration fee");
+    expect((result.details as { hint: string }).hint).toContain("Fund the signing account");
+    expect(node.sent).toEqual([]);
+  });
+
   it("simulates, sends nothing, and reports the byte length rather than the text", async () => {
     const node = await chain({ core: inEvidencePeriod() });
     const result = await runSubmitEvidence({ ...base(), rpcUrl: node.url });

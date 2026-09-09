@@ -129,3 +129,42 @@ describe("checkValueAffordable", () => {
     expect(full.success).toBe(false);
   });
 });
+
+/**
+ * Reachable on the evidence path only since the gas estimate stopped
+ * pre-empting the check (`spec/04 §2.1`).
+ */
+describe("an unpayable call that pays no fee", () => {
+  const shortfall = () =>
+    checkBalance({ balanceWei: 0n, estimatedFeeWei: 3_358_028_275_200n, valueWei: 0n });
+
+  it("does not name an arbitration cost the caller was never asked for", () => {
+    const result = shortfall();
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.message).toContain("no arbitration fee");
+    expect(result.message).not.toContain("0 ETH of arbitration cost");
+  });
+
+  it("carries the remedy in the one details key that renders", () => {
+    const result = shortfall();
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect((result.details as { hint: string }).hint).toContain("Fund the signing account");
+  });
+
+  it("still names both parts when a fee is genuinely owed", () => {
+    const result = checkBalance({
+      balanceWei: 1n,
+      estimatedFeeWei: 10n ** 13n,
+      valueWei: 15n * 10n ** 15n,
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.message).toContain("of arbitration cost plus");
+    expect(result.message).toContain("estimated gas");
+  });
+});

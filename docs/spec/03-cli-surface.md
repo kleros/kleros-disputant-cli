@@ -145,10 +145,13 @@ claim about what the caller still holds:
 
 ## 5. Output
 
-Because `format: "json"` and stdout is not a TTY, incur prints the **unwrapped payload**. The
-payload therefore carries `ok` and `command` itself, deliberately duplicating incur's envelope,
-because the agent still needs to know which command spoke. `--full-output` reveals the outer
-`{ok, data, meta}` / `{ok, error, meta}` envelope.
+Because `format: "json"` and stdout is not a TTY, incur prints the **unwrapped payload**. Every
+**success** payload therefore carries `ok` and `command` itself, deliberately duplicating incur's
+envelope, because the agent still needs to know which command spoke. `--full-output` reveals the
+outer `{ok, data, meta}` / `{ok, error, meta}` envelope.
+
+An **error** payload carries neither, and cannot: this repo builds the success payload and hands
+incur the error, whose envelope is closed. §5.4 has the consequences.
 
 ### 5.1 Rules for every payload
 
@@ -208,20 +211,43 @@ value ([01 §7](./01-onchain-reference.md)).
 
 ```json
 {
-  "ok": false,
-  "command": "create-dispute",
   "code": "COURT_OUT_OF_RANGE",
-  "message": "Court 99 does not exist: KlerosCore has courts 1 through 34. Nothing was sent.",
-  "details": { "hint": "kleros court list --chain arbitrum-one" }
+  "message": "Court 99 does not exist on KlerosCore. A dispute asking for it would be created in the General Court and paid for. Nothing was sent. kleros court list --chain arbitrum-one",
+  "cta": {
+    "description": "None of these reverts on chain.",
+    "commands": [{ "command": "kleros-disputant arbitration-cost --court <id> --jurors 3 --kit 1" }]
+  }
 }
 ```
+
+The trailing sentence of `message` is `details.hint`, concatenated. The `cta` is merged into the
+unwrapped payload by incur whenever the code has one, which this one always does.
 
 `court list` is a top-level group in `@kleros/agentkit`, not a subcommand of `dispute` — verified
 against its own command tree on 2026-09-08. Citing a command a peer CLI does not have is the
 juror repo's known defect; do not reintroduce it here.
 
-**Only `details.hint` reaches the user.** Everything else in `details` is for tests; dumping the
-whole object makes messages unreadable for the consuming agent.
+**Only `details.hint` reaches the user, and it reaches it appended to `message`.** Everything else
+in `details` is for tests; dumping the whole object makes messages unreadable for the consuming
+agent.
+
+That is a stronger statement than it looks, and it is a property of incur, not a choice this repo
+can revisit locally: **incur's error envelope is closed**. `c.error` accepts
+`{code, message, exitCode?, cta?, retryable?}` and nothing else. What it prints is
+`{ok, error: {code, message, retryable?, fieldErrors?}, meta}` under `--full-output`, and
+`{code, message}` — plus `cta` where the code has one — without it. Neither `retryable` nor
+`fieldErrors` is reachable from this repo: `finish` never sets the first, and the second comes only
+from incur's own validation path.
+
+There is **no `details` key in any output mode**, so a value that is not folded into `message` — or
+into `cta` — is not merely de-emphasised, it is unreachable. The *unwrapped* error payload
+therefore carries neither `ok` nor `command`, unlike the success payloads described in §5;
+`--full-output` supplies both, as `ok` and `meta.command`.
+
+The consequence is a rule for every `err()` call site: **if a caller needs a fact to act on, it goes
+in `message`, in `details.hint`, or in the `cta` — and nowhere else.** `RPC_ERROR` is the case that proves it —
+[ADR-0013](../adr/0013-the-rpc-cause-travels-in-the-hint.md) — because one code and one exit status
+otherwise cover an endpoint that is down, a rate limit, and an account that cannot pay.
 
 **incur prefixes the binary name onto every CTA command**, so a CTA can only ever be a subcommand
 of this CLI. A shell remedy or a call to a *different* tool goes in `details.hint`, never in a CTA.

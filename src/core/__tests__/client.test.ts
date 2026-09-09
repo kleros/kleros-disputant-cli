@@ -5,6 +5,7 @@ import {
   DEFAULT_RPC_URL,
   EXPECTED_VERSIONS,
   parseRpcUrls,
+  rpcError,
   startup,
 } from "../client.js";
 import { ARBITRUM_ONE_CHAIN_ID, DISPUTE_TEMPLATE_REGISTRY, KLEROS_CORE } from "../deployment.js";
@@ -216,5 +217,98 @@ describe("startup ordering", () => {
       "version",
       "version",
     ]);
+  });
+});
+
+/**
+ * `ADR-0013`. The cause was captured under `details.cause` and
+ * read by nothing — not the default payload, not `--full-output`, not
+ * `--format json` — so one code and one exit status covered an endpoint that is
+ * down, a rate limit and an account that cannot pay. `details.hint` is the only
+ * key `finish` renders (`spec/03 §5.4`), so the cause travels there.
+ */
+describe("an RPC failure says what the endpoint said", () => {
+  const hintOf = (result: ReturnType<typeof rpcError>) => {
+    if (result.success) throw new Error("expected a failure");
+    return (result.details as { hint?: string }).hint;
+  };
+
+  it("prefers the node's own words over viem's wrapper", () => {
+    // viem's BaseError shape: `details` is the node's message verbatim.
+    const cause = Object.assign(
+      new Error("Execution reverted.\n\nDocs: https://viem.sh\nVersion: 2"),
+      {
+        details: "insufficient funds for transfer",
+        shortMessage: "An unknown error occurred.",
+      },
+    );
+
+    expect(hintOf(rpcError("Failed to estimate gas or fees. Nothing was sent.", cause))).toBe(
+      "The endpoint said: insufficient funds for transfer",
+    );
+  });
+
+  it("falls back to the short message, then to the first line", () => {
+    const short = Object.assign(new Error("long\nbody"), { shortMessage: "HTTP request failed." });
+    expect(hintOf(rpcError("x", short))).toBe("The endpoint said: HTTP request failed.");
+
+    const plain = new Error("connect ECONNREFUSED 127.0.0.1:8545\n    at TCPConnectWrap");
+    expect(hintOf(rpcError("x", plain))).toBe(
+      "The endpoint said: connect ECONNREFUSED 127.0.0.1:8545",
+    );
+  });
+
+  it("does not echo a remote response body back into its own payload", () => {
+    // `--rpc-url` pointed at a website: viem puts the whole page in `details`.
+    const cause = Object.assign(new Error("HTTP request failed."), {
+      details: '"<!doctype html><html lang=\\"en\\"><head><title>Example Domain</title>',
+      shortMessage: "HTTP request failed. Status: 200",
+    });
+
+    expect(hintOf(rpcError("x", cause))).toBe(
+      "The endpoint said: HTTP request failed. Status: 200",
+    );
+  });
+
+  it("reads a JSON-RPC error body rather than discarding it as a body", () => {
+    // Body-shaped, but it holds the one sentence worth surfacing.
+    const cause = Object.assign(new Error("e"), {
+      details: '{"code":-32000,"message":"insufficient funds for gas * price + value"}',
+      shortMessage: "An unknown error occurred.",
+    });
+
+    expect(hintOf(rpcError("x", cause))).toBe(
+      "The endpoint said: insufficient funds for gas * price + value",
+    );
+  });
+
+  it("never echoes the endpoint back, because --rpc-url may carry an API key", () => {
+    const cause = new Error("getaddrinfo ENOTFOUND https://rpc.example.com/v2/SECRETKEY");
+    const hint = hintOf(rpcError("x", cause));
+
+    expect(hint).not.toContain("SECRETKEY");
+    expect(hint).not.toContain("rpc.example.com");
+    expect(hint).toBe("The endpoint said: getaddrinfo ENOTFOUND <rpc-url>");
+  });
+
+  it("keeps the payload small, because the whole envelope is read by a program", () => {
+    const hint = hintOf(rpcError("x", new Error("z".repeat(500))));
+    // The cap, plus the "The endpoint said: " prefix.
+    expect(hint?.length).toBeLessThanOrEqual(180);
+    expect(hint?.endsWith("…")).toBe(true);
+  });
+
+  it("distinguishes two failures that used to be one opaque code", () => {
+    const broke = rpcError(
+      "x",
+      Object.assign(new Error("e"), { details: "429 Too Many Requests" }),
+    );
+    const poor = rpcError("x", Object.assign(new Error("e"), { details: "insufficient funds" }));
+
+    expect(hintOf(broke)).not.toBe(hintOf(poor));
+  });
+
+  it("omits the hint rather than rendering an empty one", () => {
+    expect(hintOf(rpcError("x", new Error("")))).toBeUndefined();
   });
 });

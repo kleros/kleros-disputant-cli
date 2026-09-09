@@ -252,8 +252,104 @@ function isSameAddress(a: string, b: Address): boolean {
   }
 }
 
+/** The longest cause summary that still keeps the payload small (`spec/03 §5.1`). */
+const CAUSE_LIMIT = 160;
+
+/**
+ * One line naming what the endpoint actually said.
+ *
+ * viem's errors are several paragraphs — the docs URL, the request body, the
+ * version banner — and `spec/03 §5.1` requires the payload stay small, so this
+ * takes the one part that distinguishes one `RPC_ERROR` from another. viem's
+ * `BaseError` carries the node's own words in `details` and its own one-line
+ * summary in `shortMessage`; anything else falls back to the first line.
+ *
+ * The signing key cannot reach here — `rpcError` is only ever handed a failure
+ * from a read, an estimate or a send, none of which carry the key — but the cap
+ * is a second reason nothing long enough to hide something gets through
+ * (`spec/03 §6`).
+ */
+function summarizeCause(cause: unknown): string | undefined {
+  const source = cause as { details?: unknown; shortMessage?: unknown } | null;
+  const details = typeof source?.details === "string" ? source.details.trim() : "";
+  const short = typeof source?.shortMessage === "string" ? source.shortMessage.trim() : "";
+
+  /**
+   * When the endpoint is not an RPC at all, viem puts the **response body** in
+   * `details` — a whole HTML page for a URL pointed at a website by mistake.
+   * Echoing a remote body back into our own payload is noise at best, so a
+   * body-shaped `details` yields to viem's one-line summary.
+   *
+   * A JSON-RPC error object is body-shaped too, and that one is the opposite
+   * case: it holds exactly the sentence this function exists to surface. So a
+   * `{…}` body is parsed for its `message` before the fallback applies —
+   * `JSON.parse` on a bounded string, never on anything acted upon.
+   */
+  const bodyShaped = /^["']?[<{[]/.test(details);
+  const fromJson = bodyShaped ? jsonMessage(details) : undefined;
+  const candidate =
+    fromJson ??
+    (details && !(bodyShaped && short)
+      ? details
+      : short || (cause instanceof Error ? cause.message : String(cause)));
+
+  const line = candidate.split("\n").map((part) => part.trim())[0] ?? "";
+  if (!line) return undefined;
+  const redacted = redactUrls(line);
+  return redacted.length > CAUSE_LIMIT ? `${redacted.slice(0, CAUSE_LIMIT - 1)}…` : redacted;
+}
+
+/** The `message` of a JSON-RPC error object, when `details` is one. */
+function jsonMessage(details: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(details);
+    const message = (parsed as { message?: unknown; error?: { message?: unknown } })?.message;
+    const nested = (parsed as { error?: { message?: unknown } })?.error?.message;
+    const found = typeof message === "string" ? message : nested;
+    return typeof found === "string" && found.trim() ? found.trim() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * **`--rpc-url` may carry an API key**, and this string is about to be
+ * concatenated onto a `message` the caller prints and logs.
+ *
+ * viem keeps its own `URL:` line in `metaMessages`, which the first-line cut
+ * already removes — but a non-viem rejection (DNS, undici) can name the
+ * endpoint on its first line, and a paid endpoint's path *is* the credential.
+ * The rule elsewhere in this tool is that a secret never reaches a payload
+ * (`spec/03 §6`); an endpoint URL is close enough to one to get the same
+ * treatment, and the host is not what makes the message useful.
+ */
+function redactUrls(line: string): string {
+  return line.replace(/\bhttps?:\/\/\S+/gi, "<rpc-url>");
+}
+
+/**
+ * **The cause travels in `hint`, which is the only key that renders.**
+ *
+ * `ADR-0013`: this used to attach the cause under `details.cause`,
+ * and nothing reads that — not the default payload, not `--full-output`, not
+ * `--format json`. incur's error envelope is closed to `{code, message}`
+ * (`Cli.ts`'s `c.error` takes no `details`), and `spec/03 §5.4` deliberately
+ * renders only `details.hint`, so there was no mode in which the cause reached
+ * the caller. It was collected and dropped.
+ *
+ * That left `RPC_ERROR` — one code, exit 2 — meaning an endpoint that is down,
+ * a rate limit, or an account that cannot pay, with nothing to tell them apart.
+ * For a tool whose error contract is "branch on `code`", the one code that
+ * needs a second sentence was the one that had none.
+ *
+ * `details.cause` is kept unsummarised and no test reads it: it exists for a
+ * caller importing this module from `dist/index.js`, which sees the whole
+ * `KlerosResult` rather than a rendered envelope. It reaches no CLI output.
+ */
 export function rpcError(message: string, cause: unknown): KlerosResult<never> {
+  const summary = summarizeCause(cause);
   return err("RPC_ERROR", message, {
     cause: cause instanceof Error ? cause.message : String(cause),
+    ...(summary ? { hint: `The endpoint said: ${summary}` } : {}),
   });
 }

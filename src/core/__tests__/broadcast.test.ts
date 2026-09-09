@@ -35,11 +35,23 @@ const CREATE: WriteCall = {
 
 const SUBMIT: WriteCall = { functionName: "submitEvidence", args: [216n, '{"name":"n"}'] };
 
-type Recorded = { functionName: string; value?: bigint | undefined };
+type Recorded = {
+  functionName: string;
+  value?: bigint | undefined;
+  account?: { address: string } | string | undefined;
+};
 
 type FakeOptions = {
   simulate?: () => void;
   gas?: bigint;
+  /**
+   * What the node believes the sender holds, for the precheck modelled in
+   * `estimateContractGas` below. Defaults to "plenty". This is deliberately
+   * **not** read from `params.balanceWei`: the point of the precheck is that
+   * the node applies it whatever this tool thinks, so the fake has to hold its
+   * own copy for a test to be able to disagree with it.
+   */
+  nodeBalanceWei?: bigint;
   /**
    * `"timeout"` reproduces viem's own behaviour — it rejects once its `timeout`
    * elapses. `"hang"` never settles at all, which is the reported failure mode
@@ -50,8 +62,17 @@ type FakeOptions = {
 
 function fakePublicClient(options: FakeOptions = {}) {
   const seen: Record<string, Recorded> = {};
+  /**
+   * Which shape each call received its `account` in. The node's balance
+   * precheck weighs `gas * maxFeePerGas + value` for an `Account` object and
+   * `value` alone for a bare address, so this is the one input that decides
+   * whether `estimateContractGas` throws (`spec/04 §2.1`).
+   */
+  const accounts: Record<string, "object" | "address"> = {};
   const record = (label: string, request: Recorded) => {
     seen[label] = { functionName: request.functionName, value: request.value };
+    // Kept out of `seen` so the exact-equality assertions on it stay readable.
+    accounts[label] = typeof request.account === "object" ? "object" : "address";
   };
 
   const client = {
@@ -60,9 +81,42 @@ function fakePublicClient(options: FakeOptions = {}) {
       options.simulate?.();
       return { request };
     },
+    /**
+     * **Models the node's balance precheck, which is the whole point of this
+     * double.** The old fake resolved regardless of balance, so
+     * `broadcast.test.ts` asserted `INSUFFICIENT_BALANCE` down a path a real
+     * node makes unreachable, and passed. `spec/04 §2.1`.
+     *
+     * **[live]** Measured on Arbitrum One, 2026-09-09. `eth_estimateGas`
+     * always prechecks, and always counts `value`; what the populated fee
+     * fields add is the `gas * maxFeePerGas` term. So:
+     *
+     * - `account` as an object → viem fills the fee fields, and the node
+     *   weighs `gas * maxFeePerGas + value`.
+     * - `account` as a bare address → `prepareTransactionRequest` still runs
+     *   but is scoped to fill nothing, so no fee fields reach the node and it
+     *   weighs `value` alone.
+     *
+     * Verified against the same zero-balance address: the object form fails
+     * with `insufficient funds for transfer`, the bare form returns a gas
+     * figure. Production passes the bare form here for exactly that reason.
+     */
     async estimateContractGas(request: Recorded) {
       record("estimate", request);
-      return options.gas ?? 700_000n;
+      const gas = options.gas ?? 700_000n;
+      const balance = options.nodeBalanceWei ?? parseEther("1000");
+      const feesPopulated = typeof request.account === "object";
+      const required = (request.value ?? 0n) + (feesPopulated ? gas * 100_000_000n : 0n);
+      if (balance < required) {
+        // viem surfaces the node's message; the wording is the node's, kept
+        // verbatim so a cause-sniffing fix would be tested against the truth.
+        throw new Error(
+          feesPopulated
+            ? "insufficient funds for transfer"
+            : "insufficient funds for gas * price + value",
+        );
+      }
+      return gas;
     },
     async estimateFeesPerGas() {
       return { maxFeePerGas: 100_000_000n, maxPriorityFeePerGas: 0n };
@@ -84,7 +138,7 @@ function fakePublicClient(options: FakeOptions = {}) {
     },
   };
 
-  return { client: client as unknown as PublicClient, seen };
+  return { client: client as unknown as PublicClient, seen, accounts };
 }
 
 let server: RpcServer | undefined;
@@ -203,7 +257,11 @@ describe("the balance check includes the value", () => {
    * and the arbitration cost is not. Discovered locally, before anything is sent.
    */
   it("refuses an account that can pay the gas but not the fee", async () => {
-    const { client } = fakePublicClient();
+    // The node is told the account is funded, because in production it never
+    // sees this case: `checkValueAffordable` (`write.ts:115`) refuses
+    // `balance < value` before `simulateAndMaybeBroadcast` is entered. What is
+    // under test here is `broadcast.ts` alone, so the node is kept out of it.
+    const { client } = fakePublicClient({ nodeBalanceWei: parseEther("1000") });
     const result = await simulateAndMaybeBroadcast(
       params({
         client,
@@ -221,11 +279,63 @@ describe("the balance check includes the value", () => {
   });
 
   it("lets the same account through when there is no value to send", async () => {
-    const { client } = fakePublicClient();
+    const { client } = fakePublicClient({ nodeBalanceWei: parseEther("1000") });
     const result = await simulateAndMaybeBroadcast(
       params({ client, call: SUBMIT, balanceWei: parseEther("0.001") }) as never,
     );
     expect(result.success).toBe(true);
+  });
+});
+
+/**
+ * `spec/04 §2.1`. The refusal above was implemented, mapped to exit 1
+ * and given a CTA — and could not fire, because the gas estimate reached the
+ * node first and the node refuses an account that cannot pay. The caller got
+ * `RPC_ERROR`, exit 2, "the chain or the RPC failed", for what is a local
+ * refusal. The fake now models the precheck, so these tests fail against the
+ * old code.
+ */
+describe("the balance refusal survives the node's own precheck", () => {
+  it("names a zero-balance account rather than blaming the RPC", async () => {
+    // The reported reproduction: `submit-evidence` from a fresh throwaway key.
+    // Not payable, so `checkValueAffordable` upstream cannot catch it — the
+    // whole shortfall is gas, and gas is only known after the estimate.
+    const { client } = fakePublicClient({ nodeBalanceWei: 0n });
+    const result = await simulateAndMaybeBroadcast(
+      params({ client, call: SUBMIT, balanceWei: 0n }) as never,
+    );
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.code).toBe("INSUFFICIENT_BALANCE");
+    expect(result.code).not.toBe("RPC_ERROR");
+    expect(result.message).toContain("Nothing was sent");
+  });
+
+  it("refuses when the fee is covered and the gas on top is not", async () => {
+    // The node agrees with the tool here: both weigh `value + gas * fee`. This
+    // is the case `checkValueAffordable` cannot see, since `balance >= value`.
+    const balanceWei = ARBITRATION_COST + 10n ** 13n;
+    const { client } = fakePublicClient({ nodeBalanceWei: balanceWei });
+    const result = await simulateAndMaybeBroadcast(
+      params({ client, value: ARBITRATION_COST, balanceWei }) as never,
+    );
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.code).toBe("INSUFFICIENT_BALANCE");
+    expect(result.message).toContain("estimated gas");
+  });
+
+  it("estimates gas with a bare address, which is what keeps the refusal reachable", async () => {
+    const { client, accounts } = fakePublicClient({ nodeBalanceWei: 0n });
+    await simulateAndMaybeBroadcast(params({ client, call: SUBMIT, balanceWei: 0n }) as never);
+
+    // The mechanism, pinned: an `Account` object here makes viem populate the
+    // fee fields, which is what arms the node's `gas * fee + value` precheck.
+    expect(accounts.estimate).toBe("address");
+    // The simulation still gets the full account — it is not the one that throws.
+    expect(accounts.simulate).toBe("object");
   });
 });
 

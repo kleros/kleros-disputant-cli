@@ -79,6 +79,9 @@ wins and is named.
   stdout, output kept small, a stable `code` on every error. There is **no `--verbose` and no
   `--json` flag**; JSON comes from `format: "json"`. Never document a flag that does not exist.
   `spec/03 §5`
+- **incur's error envelope is closed.** A fact the caller needs goes in `message`, in
+  `details.hint` (appended to `message`), or in the `cta` — and nowhere else. **No output mode
+  renders `details`**, so any other key on it is invisible to callers. `ADR-0013`
 - **Chain 42161 only**, enforced as a runtime `eth_chainId` assertion and not merely a viem
   `chain:` field — and asserted **before** any deployment registry lookup, which is scoped to a
   deployment and reads the wrong core on an unverified chain. `spec/03 §7`
