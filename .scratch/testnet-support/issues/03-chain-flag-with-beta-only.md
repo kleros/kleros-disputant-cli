@@ -87,11 +87,14 @@ it was taken.
 and `:204` still state the chain-42161 rule, as do `spec/01 §1`'s heading and `spec/README.md`'s
 Network row — ticket 06's. `spec/03 §3.1`, `§4`, `§5.5` and `§7` are updated here.
 
-**One thing neither 03 nor 04 currently owns.** A dispute template carries `arbitratorChainID` and
-`arbitratorAddress` as **operator-supplied** fields (`template.ts`), and nothing checks them against
-the selected deployment. On one deployment that is invisible; with two, a template naming 42161 can
-be registered against the testnet arbitrator and be wrong in a way only a reader notices. It is not
-on ticket 04's list and is not in the spec's Out of Scope. Decide before 04 broadcasts.
+**One thing neither 03 nor 04 owned — now ticket 07.** A dispute template carries
+`arbitratorChainID` and `arbitratorAddress` as **operator-supplied** fields (`template.ts`), and
+nothing checks them against the selected deployment. This note originally called that invisible on
+one deployment, which was **wrong**: `spec/05 §6` already records that the published Kleros
+documentation's template examples name an `arbitratorAddress` that is not the deployed
+`KlerosCore`, so it is reachable on `arbitrum-one` today. Ticket 07 has the measurements, including
+that both fields are inert in `@kleros/kleros-sdk@2.4.0` and in AgentKit — so the harm is
+provenance, not misrouting.
 
 **Code review, six findings — four acted on, one already decided, one is the note above.**
 
