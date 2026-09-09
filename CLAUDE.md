@@ -69,6 +69,9 @@ wins and is named.
 - **Simulate every state-changing call, and broadcast only on explicit `--broadcast`.** The default
   is plan → simulate → stop. There is no human confirmation gate and nothing upstream provides one.
   `ADR-0004`
+- **`--broadcast false` means *true*, and so does `--publish false`.** incur's boolean flags never
+  read a following word as a value; the word is dropped in silence. The off switch is omitting the
+  flag. Never write one into an example or a doc. `boolean-flags.test.ts` pins it.
 - **Fees are paid in ETH only.** The ERC-20 path is unresolved, so there is **no `--fee-token`
   flag**: the broken path cannot be asked for. `ADR-0008`
 - **Failure semantics live in the JSON payload, not the exit code.** The consuming agent sees
