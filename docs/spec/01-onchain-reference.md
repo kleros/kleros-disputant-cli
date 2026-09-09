@@ -64,13 +64,26 @@ regeneration from `master` fails the build rather than a transaction. See
 
 ## 2. ABI provenance: the artifacts are deployed, the Solidity is not
 
-The `.sol` sources in the package are compiled from `master`. They disagree with the deployment for
-exactly the contracts this tool writes to. The ABIs shipped alongside them are the deployed ones,
-and are what this specification cites.
+The `.sol` sources in the package — and the **typechain `*__factory` exports compiled from them** —
+track upstream **`dev`**, not `master`, and `master` is what is deployed. They disagree with the
+deployment for exactly the contracts this tool writes to. The `*Viem` exports shipped alongside them
+are the deployed ABIs, and are what this specification cites.
+
+> **The trap is inside one package, not between the package and the chain** **[computed]**, and it
+> is reproducible offline:
+>
+> ```
+> EvidenceModule__factory.abi          submitEvidence arg0 = _arbitratorDisputeID   owner()
+> mainnetViem.evidenceModuleAbi        submitEvidence arg0 = _externalDisputeID     governor()
+> ```
+>
+> Reading the factory export answers a question about `dev` while appearing to answer one about the
+> deployment. It cost an hour on 2026-09-09, when the factory's parameter name was briefly taken as
+> evidence against [02 §4.2](./02-payload-construction.md).
 
 Known divergences, all **[abi]**:
 
-| Claim | Package Solidity (`master`) | Deployed ABI |
+| Claim | Package Solidity / `__factory` (`dev`) | Deployed ABI (`*Viem`) |
 | --- | --- | --- |
 | `DisputeResolver` ownership accessor | `owner()` | **`governor()`**, selector `0x0c340a24` |
 | `DisputeResolver` create functions | one | **two** — inline and by URI |
@@ -81,7 +94,9 @@ Known divergences, all **[abi]**:
 Consequences, normative:
 
 - The CLI **MUST** bind to `mainnetViem.*Abi`, and **MUST NOT** bind to an ABI compiled from the
-  package's Solidity.
+  package's Solidity — which includes the `*__factory.abi` exports, whose shape is `dev`'s. This
+  applies to reading them for evidence as much as to binding: a claim read from a `__factory` is
+  **[inferred]** about a branch this repo does not target, never **[abi]**.
 - The CLI **SHOULD** read `version()` where the contract offers one and **warn**, never fail, on a
   mismatch. `DisputeResolver` offers none, so no version check is possible for it.
 - Revert decoding **MUST** follow §5 exactly, because the divergence lands squarely there.
