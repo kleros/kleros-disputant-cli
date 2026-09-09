@@ -3,7 +3,8 @@
 Everything in this document was read from the deployment artifacts shipped in
 `@kleros/kleros-v2-contracts@2.0.0-rc.2` (**[abi]**), computed locally with `viem`
 (**[computed]**), or verified by live call against Arbitrum One on 2026-09-08 at block
-`503066782` (**[live]**). Markers are defined in the [README](./README.md).
+`503066782` (**[live]**). Markers are defined in the [README](./README.md). A **[live]** claim that
+cites its own block was measured later than that; §4.2's matrix is the one such claim today.
 
 ## 1. Deployment, Arbitrum One (chain ID 42161)
 
@@ -200,6 +201,32 @@ isSupported(1, 4) = false
 
 **The General Court supports only Classic on Arbitrum One**, contradicting the published
 documentation's claim that it supports all four. Classic is the only realistic v1 target.
+
+The full matrix, **[live]** at block `503203767` (2026-09-09T01:10:11Z), 140 `isSupported` calls
+over every court and kit that exists, all pinned to that one block:
+
+```
+courts 1..34 exist, none disabled.   getDisputeKitsLength() = 5, so kits are 1..4.
+
+every court 1..34 ....... kit 1        court 24 .... kits 1, 2, 3
+court 0 (the sentinel) .. no kit       court 32 .... kits 1, 3
+                                       kit 4 ....... no court at all
+```
+
+Three facts worth separating, because only one of them is durable:
+
+1. **Kit 1 is supported by every court**, so `--kit 1` is the request that cannot fail this check.
+2. **Support for anything else is per court**, and two courts have it. A refusal therefore says
+   something about the *pairing*, not about the kit — a message that explains it by naming the
+   General Court is wrong for any other court.
+3. **This table is a snapshot and nothing signals when it stops being true.** Kit support is
+   governance-controlled: a court can gain or lose a kit with no event this tool watches, no
+   version bump, and no change to any ABI the fingerprint test pins. Do not build on the matrix.
+   Build on the rule below, which is why it is a **MUST**.
+
+The CLI **MUST** call `isSupported` on every invocation and **MUST NOT** cache it, across process
+boundaries or within one. The re-read is the whole defence; the matrix above is only evidence that
+the shape of the answer is per court rather than global.
 
 An unsupported kit **does** revert — `0xb34eb75d`, `DisputeKitNotSupportedByCourt()`,
 confirmed **[live]** by simulating a create with `extraData` naming court 1 and kit 2. It is the

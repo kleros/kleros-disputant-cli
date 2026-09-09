@@ -208,6 +208,14 @@ cast call $CORE "isSupported(uint96,uint256)(bool)" 1 1 --rpc-url $RPC   # expec
 cast call $CORE "isSupported(uint96,uint256)(bool)" 1 2 --rpc-url $RPC   # expect false
 cast call $CORE "isSupported(uint96,uint256)(bool)" 1 3 --rpc-url $RPC   # expect false
 
+# kit support is per court, and these two courts are the exception (01 section 4.2).
+# A difference here is DRIFT, NOT A FAILURE: kit support is governance-controlled and
+# nothing signals a change. Re-record the matrix; never widen it into a claim that
+# holds deployment-wide.
+cast call $CORE "isSupported(uint96,uint256)(bool)" 24 2 --rpc-url $RPC  # expect true
+cast call $CORE "isSupported(uint96,uint256)(bool)" 32 3 --rpc-url $RPC  # expect true
+cast call $CORE "isSupported(uint96,uint256)(bool)" 24 4 --rpc-url $RPC  # expect false — kit 4 has no court
+
 # bounds. Both MUST revert; if courts(35) succeeds a court was added and the
 # validation range in 02 section 1.1 is stale
 cast call $CORE "courts(uint256)(uint96,bool,uint256,uint256,uint256,uint256,bool)" 35 --rpc-url $RPC

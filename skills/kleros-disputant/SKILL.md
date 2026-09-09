@@ -72,6 +72,21 @@ Prefer `@path` for anything long: it keeps the text out of the process table.
 
 ## Usage
 
+> [!WARNING]
+> **Never write `--broadcast false` or `--publish false`. They mean *true*.** A boolean flag here does
+> not read the following word as its value: the word is parsed as a positional and silently
+> discarded, and the gate opens. `--broadcast false` creates a paid dispute and spends the
+> arbitration cost; `--publish false` publishes the file permanently.
+>
+> **To keep a gate closed, omit the flag.** That is the default and it is what every dry run below
+> relies on. If it must be explicit, use `--no-broadcast` / `--no-publish`, or the equals form
+> `--broadcast=false`. Both are safe; omitting is safer, because it cannot be mistyped into its
+> opposite.
+>
+> This matters because the CLI's own `--help` examples render `--broadcast true` and `--publish true`.
+> That form is only correct for *true* — it is what makes the `false` version look plausible. Do not
+> mirror it, in either direction.
+
 ```bash
 # 1. What would it cost? Reads only, needs no key, sends nothing.
 kleros-disputant arbitration-cost --court 1 --jurors 3
@@ -80,18 +95,20 @@ kleros-disputant arbitration-cost --court 1 --jurors 3
 kleros-disputant upload-file --file ./delivery-photos.pdf
 kleros-disputant upload-file --file ./delivery-photos.pdf --publish
 
-# 3. Dry run the dispute. This is the DEFAULT: it plans, quotes, pre-flights, simulates and stops.
+# 3. Dry run the dispute. The DEFAULT, and note there is no --broadcast here at all:
+#    that absence IS the off switch. Plans, quotes, pre-flights, simulates, stops.
 kleros-disputant create-dispute --court 1 --jurors 3 \
   --template-file ./dispute.json --max-cost-eth 0.02 --key-file ~/.kleros-disputant/key
 
-# 4. Create it for real. --broadcast is the confirmation; there is no prompt.
+# 4. Create it for real: the same command with --broadcast added. The flag takes no
+#    value, so never put a bare word after it. It is the confirmation; there is no prompt.
 kleros-disputant create-dispute --court 1 --jurors 3 \
   --template-file ./dispute.json --max-cost-eth 0.02 --key-file ~/.kleros-disputant/key --broadcast
 
 # 5. Where does the dispute stand, and can evidence submitted now still reach jurors?
 kleros-disputant status --dispute 215
 
-# 6. Submit one evidence document. Dry run first, then the same command with --broadcast.
+# 6. Submit one evidence document. Dry run first, then re-run with --broadcast appended.
 kleros-disputant submit-evidence --dispute 215 \
   --name "Delivery photographs" --description @statement.md \
   --file-uri /ipfs/QmWQV5ZFFhEJiW8Lm7ay2zLxC2XS4wx1b2W7FfdrLMyQQc --file-type-extension pdf \
@@ -117,12 +134,8 @@ Read `status` in the payload to know what actually happened:
 
 `arbitration-cost` and `status` carry no `status` field: they never write.
 
-> [!WARNING]
-> **`--broadcast false` sets it to true and sends the transaction.** So does `--publish false`.
-> Boolean flags here never read a following word as their value: the word is parsed as a positional
-> and silently discarded. The spellings that mean off are **omitting the flag**, `--no-broadcast` /
-> `--no-publish`, or `--broadcast=false` with the equals sign. Omitting it is the one to prefer,
-> because it is also the default.
+**The off switch is the absence of the flag**, never `--broadcast false` — which means true, as the
+warning under Usage explains. This is the single most expensive mistake available here.
 
 Two things a wrapping policy layer should know. The safe path is the *absence* of a flag rather than
 the presence of one — there is no `--dry-run` — so the two invocations differ only by `--broadcast`.
