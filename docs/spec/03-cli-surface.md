@@ -76,7 +76,7 @@ would add a surface without adding a choice.
 | --- | --- | --- |
 | `--court` | yes | Court ID, `1..34`. `0` is refused |
 | `--jurors` | yes | Juror count, `>= 1` |
-| `--kit` | no | Dispute kit ID. Defaults to `1` (Classic), the only kit supported by any court in scope |
+| `--kit` | no | Dispute kit ID. Defaults to `1` (Classic), the kit every court supports. Some courts support others as well, so this is a scope choice and **MUST NOT** be written as a claim that no other kit is supported anywhere |
 | `--template-file` | yes | Path to the dispute template JSON. Validated strictly ([02 §3.2](./02-payload-construction.md)) |
 | `--max-cost-eth` | yes | The local cost ceiling. **Enforced before quoting, and before simulating** |
 
@@ -111,7 +111,7 @@ field — a true refusal with a misleading reason.
 | `--file` | yes | Path to the local file. The **only** path this tool ever reads that is not a key or a template |
 | `--publish` | no | Default `false`. Without it the command checks the file and stops. **Not** `--broadcast`: nothing is broadcast to a chain |
 | `--upload-url` | no | Override the endpoint. No environment variable, per [§3.1](#31-shared) |
-| `--no-verify` | no | Skip the round-trip check. On by default — [06 §4.2](./06-attachment-upload.md) |
+| `--verify` | no | Default `true`. `--no-verify` skips the round-trip check — [06 §4.2](./06-attachment-upload.md). Named `verify`, because incur reads a leading `--no-` as its own negation prefix and an option *named* `no-verify` is unreachable |
 
 It takes **none** of `--rpc-url`, `--key-file`, `--broadcast` or `--max-fee-gwei`. There is no
 chain interaction to configure and no key to load.

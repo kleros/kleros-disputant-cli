@@ -136,8 +136,9 @@ one `data` event carries the part. That was confirmed by round-tripping 23 B, 16
 128 KiB, 512 KiB, 1 MiB, 2 MiB and 4 MiB through the gateway byte for byte **[service]**.
 
 The CLI therefore **verifies by default**: it fetches the returned CID back and compares it to the
-bytes it sent, refusing on a mismatch (`--no-verify` opts out). This is the only check that catches
-a silent truncation, and it turns a latent corruption into a loud refusal.
+bytes it sent, refusing on a mismatch (`--verify` is on by default; `--no-verify` opts out). This
+is the only check that catches a silent truncation, and it turns a latent corruption into a loud
+refusal.
 
 Reading back bytes the tool itself just uploaded is **not** a breach of
 [ADR-0007](./0007-evidence-is-opaque-operator-supplied-bytes.md). That rule forbids dereferencing

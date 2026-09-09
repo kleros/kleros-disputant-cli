@@ -196,8 +196,9 @@ export function checkExtraData({
   if (!chain.kitSupported) {
     return err(
       "DISPUTE_KIT_NOT_SUPPORTED",
-      `Court ${courtID} does not support dispute kit ${disputeKitID}. On Arbitrum One the ` +
-        "General Court supports Classic (kit 1) only. Nothing was sent.",
+      `Court ${courtID} does not support dispute kit ${disputeKitID}. Kit support is per court: ` +
+        "every court on Arbitrum One supports Classic (kit 1), and a few support others. " +
+        "Nothing was sent.",
       { courtID: courtID.toString(), disputeKitID: disputeKitID.toString() },
     );
   }

@@ -128,8 +128,8 @@ The CLI **MUST NOT** parse a non-`2xx` body as JSON: `413` arrives as `text/plai
 
 ### 4.2 Verification is on by default
 
-The CLI **MUST**, unless `--no-verify` is passed, fetch the returned CID from an IPFS gateway and
-compare the bytes to what it uploaded.
+The CLI **MUST**, unless verification is switched off with `--no-verify`, fetch the returned CID
+from an IPFS gateway and compare the bytes to what it uploaded.
 
 - Bytes differ, or the length differs → **`UPLOAD_MISMATCH`**, a hard failure. The CID does not
   address the file.

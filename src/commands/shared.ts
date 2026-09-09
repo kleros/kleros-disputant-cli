@@ -297,12 +297,23 @@ export const writeOptions = {
       "Path to the file holding the signing key, mode 0600. The key is never accepted from an " +
         "environment variable or a command-line argument, and never appears in any output.",
     ),
+  // `--broadcast false` sets this to **true**. incur's boolean flags never consume
+  // a following word, so the word is parsed as a positional and then discarded in
+  // silence, because no command here declares `args`. The safe spellings for off
+  // are omitting the flag, `--no-broadcast`, or `--broadcast=false`; the same
+  // applies to `--publish`. Verified against incur 0.4.26 by driving `Parser.parse`
+  // directly, and observed end to end on `--publish false`, which uploaded.
+  //
+  // This cannot be defended against here — incur owns the parser — so it is
+  // documented in `skills/kleros-disputant/SKILL.md`, where the caller reads it
+  // before spending money. Do not "fix" it by making this option a string.
   broadcast: z
     .boolean()
     .default(false)
     .describe(
       "Send the transaction. Without it the command plans, simulates and stops. There is no " +
-        "confirmation prompt: this flag is the confirmation.",
+        "confirmation prompt: this flag is the confirmation. Omit it, or pass --no-broadcast, to " +
+        "keep it off: --broadcast false sets it to true, because the word is not read as a value.",
     ),
   "max-fee-gwei": z
     .string()
@@ -328,7 +339,8 @@ export const extraDataOptions = {
     .string()
     .default("1")
     .describe(
-      "Dispute kit ID. 1 is Classic, which is the only kit any court on Arbitrum One supports.",
+      "Dispute kit ID. 1 is Classic, the kit every court on Arbitrum One supports. A few courts " +
+        "support others as well, and kit support is re-read on every invocation rather than assumed.",
     ),
 };
 

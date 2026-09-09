@@ -270,7 +270,9 @@ const cli = Cli.create("kleros-disputant", {
         .default(false)
         .describe(
           "Actually upload. Without it the command reports the size, the SHA-256 and every " +
-            "refusal, and stops. There is no confirmation prompt: this flag is the confirmation.",
+            "refusal, and stops. There is no confirmation prompt: this flag is the confirmation. " +
+            "Omit it, or pass --no-publish, to keep it off: --publish false uploads, because the " +
+            "word is not read as a value.",
         ),
       "upload-url": z
         .string()
@@ -283,12 +285,21 @@ const cli = Cli.create("kleros-disputant", {
         .string()
         .optional()
         .describe("Override the IPFS gateway used to read the CID back after uploading."),
-      "no-verify": z
+      // Named `verify`, not `no-verify`: incur reads a leading `--no-` as its own
+      // boolean negation prefix, so an option *named* `no-verify` is unreachable —
+      // `--no-verify` is rejected as an unknown flag and only `--no-no-verify`
+      // parses, which negates it back to `false` and leaves verification on. This
+      // spelling gives `--no-verify` and `--verify=false` for free. Not `--verify
+      // false`: incur's boolean flags never consume a following word, so the
+      // space form sets `true` and the word is discarded — see `broadcast` in
+      // `commands/shared.ts` for why that matters more there than here.
+      verify: z
         .boolean()
-        .default(false)
+        .default(true)
         .describe(
-          "Skip reading the CID back to confirm it addresses the bytes that were sent. The " +
-            "check is on by default because the endpoint can truncate a file silently.",
+          "Read the CID back after uploading to confirm it addresses the bytes that were sent. " +
+            "On by default because the endpoint can truncate a file silently; pass --no-verify " +
+            "to skip it.",
         ),
     }),
     examples: [
@@ -307,7 +318,7 @@ const cli = Cli.create("kleros-disputant", {
         publish: c.options.publish,
         uploadUrl: c.options["upload-url"],
         gateway: c.options.gateway,
-        verify: !c.options["no-verify"],
+        verify: c.options.verify,
       });
       return finish(c, result, {}, uploadSuccessCta);
     },

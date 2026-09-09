@@ -117,6 +117,13 @@ Read `status` in the payload to know what actually happened:
 
 `arbitration-cost` and `status` carry no `status` field: they never write.
 
+> [!WARNING]
+> **`--broadcast false` sets it to true and sends the transaction.** So does `--publish false`.
+> Boolean flags here never read a following word as their value: the word is parsed as a positional
+> and silently discarded. The spellings that mean off are **omitting the flag**, `--no-broadcast` /
+> `--no-publish`, or `--broadcast=false` with the equals sign. Omitting it is the one to prefer,
+> because it is also the default.
+
 Two things a wrapping policy layer should know. The safe path is the *absence* of a flag rather than
 the presence of one — there is no `--dry-run` — so the two invocations differ only by `--broadcast`.
 And both write commands load the signing key even on the safe path, because the sender is part of the
@@ -158,7 +165,7 @@ or its outcome · `4` signing key.
 | `COURT_OUT_OF_RANGE` | Court IDs start at 1 — court 0 is the Forking Court and is never a target. If the court could not be confirmed to exist, do not retry with the same ID: a paid dispute would land in the General Court |
 | `COURT_DISABLED` | That court takes no new disputes. Pick another and re-quote |
 | `JURORS_INVALID` | `--jurors` must be at least 1. Zero is replaced by the arbitrator's own default and charged for |
-| `DISPUTE_KIT_OUT_OF_RANGE`, `DISPUTE_KIT_NOT_SUPPORTED` | Kit 1 (Classic) is what nearly every court on Arbitrum One accepts — but not all of them: courts 24 and 32 accept more, while court 1 accepts only kit 1. Support is re-read with `isSupported` on every invocation and never cached, so trust the refusal over any table, this one included |
+| `DISPUTE_KIT_OUT_OF_RANGE`, `DISPUTE_KIT_NOT_SUPPORTED` | Every court on Arbitrum One supports kit 1 (Classic), so kit 1 is always a safe request. Support for any other kit is per court and a few courts do have one, so a refusal here is about the pairing, not about the kit. It is re-read with `isSupported` on every invocation and never cached: trust the refusal over any table, this one included |
 | `TEMPLATE_INVALID` | `--template-file` takes a *path*. The message names the reason: unreadable, not JSON, an unknown field, or an `arbitratorAddress` that is not an address |
 | `RULING_OPTIONS_INVALID` | The template needs at least two answers, with hex ids from `0x1` up, no duplicates once normalised, and never `0x0` — that id is reserved for refusing to arbitrate |
 | `POLICY_URI_INVALID` | `policyURI` must be a multiaddr such as `/ipfs/Qm…`. A plain `https://` URL is refused, because the Kleros Court web client's own schema refuses it |

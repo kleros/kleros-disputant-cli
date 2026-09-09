@@ -33,8 +33,10 @@ Normative:
 
 > **[live]** Gated and GatedShutter concatenate a further 64 bytes of kit data, giving a 160-byte
 > blob. Since `isSupported(1, 3)` and `isSupported(1, 4)` are both `false` on Arbitrum One, those
-> kits are out of scope, and "96 bytes" is a property of the kits in scope rather than of the
-> format. A CLI that later adds them **MUST** revisit this section rather than pad the blob.
+> kits are out of scope **for the General Court** — which is scope enough for this tool, but is not
+> evidence that no court supports them, because some do. "96 bytes" is therefore a property of the
+> kits in scope rather than of the format. A CLI that later adds them **MUST** revisit this
+> section rather than pad the blob.
 
 ### 1.1 Validation, before encoding
 
