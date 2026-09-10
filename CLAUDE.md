@@ -169,8 +169,9 @@ blocks. Core never throws. `ADR-0001`, `spec/03 §8`
 - `docs/adr/` — one file per decision a reader would otherwise question. Numbers 0003 and 0005 are
   **deliberately unused**: juror-only decisions this repo never made, left as gaps so that
   `ADR-0004` means the same thing in both repos.
-- `docs/knowledge/` — traps that fit nowhere else: what a green fork run may not prove, and why an
-  elided address must never be expanded by hand.
+- `docs/knowledge/` — traps that fit nowhere else: what a green fork run may not prove, why an
+  elided address must never be expanded by hand, and how to exercise a branch no contract in the
+  call stack can produce.
 - `docs/agents/domain.md` — the convention the engineering skills follow.
 
 The **CLI surface is machine-checked** against the glossary: `vocabulary.test.ts` renders `--help`,
