@@ -64,12 +64,14 @@ the ones that can change the decision to sign.
 
 **Pre-release.** All five commands are built and tested. The read paths are verified live against
 Arbitrum One; the second deployment's addresses, versions and wiring are verified live on Arbitrum
-Sepolia, though no command has yet been exercised there end to end — that is the acceptance test
-below. Both write paths broadcast on an Arbitrum One fork under `pnpm test:fork`, and `upload-file`
-is measured against the live pinning endpoint.
-**No transaction has ever been broadcast to either deployment** — not to Arbitrum One, and not yet
-to the testnet that exists to rehearse it. Treat the first live dispute as the shakedown run, on a
-cheap court, with a ceiling you can afford to lose.
+Sepolia. **The full lifecycle has run against the live v2 testnet** under `pnpm test:acceptance` —
+quote, simulate, create, submit evidence, status, each through the built binary in its own process
+— creating core dispute 128 in court 1 and filing evidence against it under local dispute 78. Both
+write paths also broadcast on an Arbitrum One fork under `pnpm test:fork`, and `upload-file` is
+measured against the live pinning endpoint.
+**No transaction has been broadcast to Arbitrum One.** The testnet rehearsal that exists to precede
+it has now happened; the Beta deployment has not been written to. Treat the first live dispute
+there as the shakedown run, on a cheap court, with a ceiling you can afford to lose.
 
 | Command | Signing key | On-chain write |
 | --- | :---: | --- |
@@ -363,8 +365,10 @@ possible ([ADR-0001](docs/adr/0001-standalone-repo-shaped-for-upstreaming.md)).
 ```bash
 pnpm test             # unit + guard tests; a suite whose prerequisite is absent self-skips loudly
 pnpm test:fork        # spawn an Arbitrum One fork on :8546 and run only the fork tests (needs anvil)
-pnpm test:acceptance  # full lifecycle against the live v2 testnet; needs a funded testnet key.
-                      # Not written yet
+pnpm test:acceptance  # full lifecycle against the live v2 testnet, through the built binary.
+                      # Broadcasts permanently and creates real testnet disputes. Needs a funded
+                      # testnet key. The opt-in is the name of this script, never a variable, so
+                      # nothing else — `pnpm test` included — can arm it
 pnpm typecheck
 pnpm lint             # biome check .   (`pnpm exec biome check --write .` to fix)
 pnpm build
@@ -406,8 +410,8 @@ agent calls.
 
 ## Roadmap
 
-- [ ] The acceptance test — the full lifecycle against the live v2 testnet, in separate processes
-      (`docs/spec/05-verification.md` §3)
+- [x] The acceptance test against the **live** v2 testnet — the full lifecycle in separate
+      processes, green (`docs/spec/05-verification.md` §3)
 - [ ] First broadcast against Arbitrum One, then the first npm release
 - [ ] Upstreaming `src/core/` into `@kleros/agentkit` once its write milestone lands
 

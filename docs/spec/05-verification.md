@@ -292,10 +292,49 @@ the wrong deployment's constant against a chain that is free to change it.
    second arbitrable exists on the testnet, so the two identifiers have already separated and a
    bytes-only assertion would fail to catch the regression §2.7 names. On a pinned Arbitrum One
    fork they coincide unless the fork is seeded.
+
+   The separation is wide and still widening. This suite's own first live run created core dispute
+   **128**, which resolves to local dispute **78** on `arbitrum-sepolia-testnet` **[live]**
+   2026-09-10 — fifty apart, and filed under 78. The test therefore asserts the two **differ**, not
+   merely that the log matches the mapping: an equality-only assertion would pass whichever
+   identifier the CLI sent, which is exactly how the defect survived (ADR-0014).
 5. `status` reports the dispute in the `evidence` period.
 
 The acceptance test **MUST** assert that no secret reached stdout or stderr, and that nothing was
-written to disk.
+written to disk. Both **MUST** hold for **every** invocation, not for a chosen one: they belong in
+the helper that spawns the process, because a test can only assert about the runs it remembered to
+make.
+
+**The leak assertion MUST reduce to a boolean before it reaches `expect`.** A failing
+`expect(output).not.toContain(secret)` prints its expected substring, so the assertion written to
+catch a leaked key would print that key into a terminal, a CI log and whatever bug report quotes
+them. `expect(leaked).toBe(false)` says the same thing and reveals nothing.
+
+**"Nothing was written to disk" is a scope, not a syscall trace, and the scope MUST be stated where
+it is asserted.** What is provable without one is that the child's working directory is empty and
+stays empty; that its `HOME`, `XDG_CONFIG_HOME` and `TMPDIR` are redirected into a tree the suite
+watches, so a config file, a cache or a scratch file would land somewhere it sees; and that the two
+files it is *given* — the key and the template — are unchanged in size, mode and mtime afterwards.
+
+**The suite MUST require an explicit opt-in, and `pnpm test:acceptance` is the only thing that
+grants it.** Absent it, nothing in the file opens a socket, reads a key or derives an address —
+which is what makes this a release gate rather than a CI job on a machine that happens to have a
+funded key in its home directory.
+
+**That opt-in MUST NOT be an environment variable.** A variable is inheritable: exported once while
+iterating on the suite, or set by a CI job or a `direnv` block, it silently arms every later
+`pnpm test` in that shell — and `prepublishOnly` runs `pnpm test`, so publishing would broadcast.
+This is the invisible input [ADR-0016](../adr/0016-the-environment-configures-transport-never-target.md)
+refuses for `--chain`, on a switch that spends money rather than one that picks an endpoint, so it
+gets the same answer: the invocation says it or nobody does. `npm_lifecycle_event` — the package
+manager's name for the script it is running, set per process — is what satisfies this today. The funded-key check is then a *second* gate, not the first one:
+a missing build, a missing key, an endpoint answering the wrong chain ID and a key that cannot pay
+are four different problems and each **MUST** get its own sentence. "Skipped" is not a diagnosis.
+
+**Every invocation MUST settle.** An assertion that throws inside a child-process callback is not
+inside the promise executor, so nothing rejects: the failure surfaces as a per-test timeout minutes
+later instead of as the assertion that fired. This was found by falsifying the leak check and
+watching a leak report itself as a hang.
 
 ## 4. Live read-only checks
 

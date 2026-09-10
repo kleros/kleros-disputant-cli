@@ -40,7 +40,7 @@
     "format": "biome format . --write",
     "typecheck": "tsc --noEmit",
     "test:fork": "anvil --fork-url ${ARBITRUM_RPC:-$(mesc url arbitrum_alchemy 2>/dev/null || echo https://arb1.arbitrum.io/rpc)} --port 8546 --silent & ANVIL=$!; until cast chain-id --rpc-url http://127.0.0.1:8546 >/dev/null 2>&1; do kill -0 $ANVIL 2>/dev/null || { echo 'anvil exited before it was reachable' >&2; exit 1; }; sleep 0.25; done; vitest run src/__tests__/fork.test.ts; STATUS=$?; kill $ANVIL; exit $STATUS",
-    "test:acceptance": "vitest run src/__tests__/acceptance.testnet.test.ts"
+    "test:acceptance": "pnpm build && vitest run src/__tests__/acceptance.testnet.test.ts"
   },
   "dependencies": {
     "incur": "~0.4.19",
