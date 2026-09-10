@@ -219,10 +219,36 @@ sharper lesson: re-verification reproduced the source's imprecision instead of c
   down with an ENOENT saying nothing about citations. Both fixed, neither reachable today.
 - `.gitignore`'s pattern was unanchored, matching at any depth while its comment said "root note".
 
-### Out of scope, and worth a ticket: `dev` or `master`?
+### `dev` or `master`? — raised as out of scope, then settled by the maintainer
 
-`spec/01 §2` says the package's `.sol` sources and its `*__factory` exports "track upstream **dev**,
-not `master`, and `master` is what is deployed". `ADR-0006` and `CLAUDE.md`'s Stack blockquote both
-say the `.sol` sources are "compiled from **master**". Directly opposed, pre-existing, and cited by
-two of the sections this ticket touched. Not fixed here because settling it needs its own
-verification against the package, not a sweep.
+The fact-check surfaced a pre-existing contradiction: `spec/01 §2` said the package's `.sol` sources
+and its `*__factory` exports "track upstream **dev**", while `ADR-0006`, `CLAUDE.md`'s Stack
+blockquote and `spec/README`'s all said they are "compiled from **master**". Five sites, directly
+opposed, and two of them cited by sections this ticket had just edited.
+
+**[maintainer]**, 2026-09-10, asked rather than measured harder: *"the package solidity contracts do
+track the dev branch. But the v2 beta and testnet viem deployment artifacts are not impacted by
+contract changes in dev. They accurately track the live version of the contracts for those
+deployments."*
+
+So `spec/01 §2` was right and four documents were wrong, and the second sentence is a **stronger
+claim than the repo made anywhere**. Every site now says `dev`, and `spec/01 §2` is rewritten as the
+canonical statement of both halves:
+
+- the `.sol` sources and the `*__factory` exports compiled from them track `dev`;
+- the `*Viem` **deployment artifacts** track the live contracts of *their own* deployment and are
+  unaffected by `dev`.
+
+That second half is what makes `ADR-0006`'s import safe rather than merely convenient, and it is
+why **[abi]** is a claim about a deployment rather than about a branch — so `ADR-0006` and
+`spec/README`'s marker blockquote now say it too.
+
+**A consequential knock-on: the fingerprint test's stated purpose was wrong.** `spec/01 §1`,
+`spec/05 §1.6` and `ADR-0006` all justified it as catching "an upstream regeneration from
+`master`" — but if the artifacts track live deployments, a regeneration is not the risk. What the
+fingerprint actually guards is a release that swapped a deployment artifact for something compiled
+from the package's Solidity. Same test, and now the reason given for it is the reason it holds.
+
+`spec/01 §7.1`'s remaining `master` claim was reframed rather than deleted: the useful conclusion is
+that **`dev` is not deployed**, which now rests on the maintainer's statement **and** on the
+**[live]** `version()` reading, instead of on an `[inferred]` claim about which branch is deployed.

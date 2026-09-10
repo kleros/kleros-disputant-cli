@@ -21,24 +21,27 @@ the import safe rather than merely convenient.
 ## Why hand-pinning is the wrong caution
 
 The requirement it was protecting is real: bind to the **deployed** ABI, never one compiled from
-`master`. What the cautious reading got wrong is the conclusion — the package ships the deployed
-artifacts, not `master`. The proof is the test itself: a fingerprint test asserting properties of
-the deployed contracts can be pointed at the package's ABI just as well as at a local copy, and a
-package regenerated from `master` then fails the build exactly as a drifted copy would. The canary
-does not go away; it moves from guarding a copy to guarding the import.
+source. What the cautious reading got wrong is the conclusion — the package ships the deployed
+artifacts alongside the source, and **[maintainer]** those artifacts track the live contracts of
+their own deployment rather than any branch. The proof is the test itself: a fingerprint test
+asserting properties of the deployed contracts can be pointed at the package's ABI just as well as
+at a local copy, and a release that swapped a source-compiled ABI in then fails the build exactly as
+a drifted copy would. The canary does not go away; it moves from guarding a copy to guarding the
+import.
 
 Addresses were never the concern at all. Verifying that a *configured* address is the contract you
 think it is is a constraint on verification, not on provenance.
 
 ## The fingerprints are not optional here
 
-> The package's `.sol` sources are compiled from `master` and are **not the deployed code**, and
-> they diverge for exactly the contracts this tool needs.
+> The package's `.sol` sources track upstream `dev` and are **not the deployed code**, and they
+> diverge for exactly the contracts this tool needs. The `*Viem` **deployment artifacts** in the
+> same package do not: `spec/01 §2`.
 
 The deployed `DisputeResolver` exposes `governor()` — there is no `owner()` selector in the
 bytecode — has **both** create functions, and emits a **5-argument** `DisputeRequest`; the source
 has `owner()`, one create function and three arguments. The deployed `KlerosCore` has no
-`arbitrableWhitelistEnabled` toggle that `master` added, which is why an EOA's `createDispute`
+`arbitrableWhitelistEnabled` toggle that the source declares, which is why an EOA's `createDispute`
 reverts unconditionally (see `CONTEXT.md`, **Arbitrable**).
 
 So: bind to `mainnetViem.*Abi`, never to anything compiled from source, and pin a signature

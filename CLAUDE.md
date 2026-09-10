@@ -145,9 +145,11 @@ a **devDependency**; the package root does not import, so reach it through the `
 subpath. The ABI fingerprint test is what makes the import safe rather than merely convenient.
 `ADR-0006`
 
-> The package's `.sol` sources are compiled from `master` and are **not the deployed code**. They
-> diverge for exactly the contracts this tool needs — which is why `reverts.ts` needs both a string
-> decoder and a selector table. `spec/01 §2, §5`
+> The package's `.sol` sources track upstream `dev` and are **not the deployed code**. They diverge
+> for exactly the contracts this tool needs — which is why `reverts.ts` needs both a string decoder
+> and a selector table. The `*Viem` **deployment artifacts** are the exception and the reason the
+> import is safe: they track the live contracts of their own deployment, not a branch
+> **[maintainer]**. `spec/01 §2, §5`
 
 Do **not** add `@kleros/kleros-sdk` as a runtime dependency: an authoring schema must be strict and
 its parser is deliberately lenient — the exact inverse — and it pulls a conflicting zod major.

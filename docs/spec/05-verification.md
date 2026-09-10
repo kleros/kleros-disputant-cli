@@ -68,8 +68,9 @@ out-of-range court is reported as such rather than as an unsupported kit.
 
 ### 1.6 Deployment fingerprint
 
-A test **MUST** pin the ABI entries this tool binds to, so an upstream regeneration from `master`
-fails the build rather than a transaction. At minimum:
+A test **MUST** pin the ABI entries this tool binds to, so that an upstream release which replaced a
+deployment artifact with something compiled from the package's Solidity fails the build rather than
+a transaction ([01 §2](./01-onchain-reference.md)). At minimum:
 
 - `createDisputeForTemplate` selector is `0xdc653511` and the function is `payable`.
 - `submitEvidence` selector is `0xa6a7f0eb` and the function is **not** payable.

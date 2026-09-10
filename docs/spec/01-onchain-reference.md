@@ -155,15 +155,29 @@ Three mechanical facts, all verified against `2.0.0-rc.2`:
   aliased on import so it does not collide with viem's checksumming `getAddress`.
 
 The CLI **MUST** pin an ABI fingerprint test over the entries it binds to, so that an upstream
-regeneration from `master` fails the build rather than a transaction. See
-[05 §1.6](./05-verification.md).
+release which replaced a deployment artifact with something compiled from the package's Solidity
+fails the build rather than a transaction. §2 says why that is the failure worth guarding: the
+artifacts are supposed to track the live contracts, and the fingerprint is what says so if they ever
+stop. See [05 §1.6](./05-verification.md).
 
 ## 2. ABI provenance: the artifacts are deployed, the Solidity is not
 
-The `.sol` sources in the package — and the **typechain `*__factory` exports compiled from them** —
-track upstream **`dev`**, not `master`, and `master` is what is deployed. They disagree with the
-deployment for exactly the contracts this tool writes to. The `*Viem` exports shipped alongside them
-are the deployed ABIs, and are what this specification cites.
+One package ships two things with different provenance, and this section exists because they are
+easy to mistake for each other.
+
+**[maintainer]**, 2026-09-10:
+
+- The `.sol` sources — and the **typechain `*__factory` exports compiled from them** — track
+  upstream **`dev`**. They disagree with the deployment for exactly the contracts this tool writes
+  to.
+- The **`*Viem` deployment artifacts for the served deployments are not affected by changes on
+  `dev`.** They track the live contracts of *their own* deployment. So `mainnetViem` and
+  `testnetViem` are the deployed ABIs, not a snapshot of a branch, and they are what this
+  specification cites and what the CLI binds to.
+
+That second half is the load-bearing one: it is why importing from the package is safe at all
+([ADR-0006](../adr/0006-deployment-imported-from-contracts-package.md)) rather than merely
+convenient, and why **[abi]** is a claim about a deployment rather than about a branch.
 
 > **The trap is inside one package, not between the package and the chain** **[computed]**, and it
 > is reproducible offline:
@@ -179,7 +193,7 @@ are the deployed ABIs, and are what this specification cites.
 
 Known divergences, all **[abi]**:
 
-| Claim | Package Solidity / `__factory` (`dev`) | Deployed ABI (`*Viem`) |
+| Claim | Package Solidity / `__factory` (`dev`) | Deployed ABI (`*Viem`, live) |
 | --- | --- | --- |
 | `DisputeResolver` ownership accessor | `owner()` | **`governor()`**, selector `0x0c340a24` |
 | `DisputeResolver` create functions | one | **two** — inline and by URI |
@@ -596,10 +610,12 @@ caller name the deployment and then asserts the chain ID *that deployment* expec
 resolving a deployment from the chain ID
 ([ADR-0015](../adr/0015-a-deployment-is-not-a-chain.md)).
 
-**[inferred]** The rename lives on upstream `dev`, not on `master`, and `master` is what is deployed
-to both Arbitrum One and the v2 testnet — each reports `EvidenceModule.version()` `0.8.0`, which is
-`master`'s constant. The contract half of the change is **cosmetic**: `dev`'s `submitEvidence` body
-still only emits its argument, and the selector is unchanged.
+The rename lives on upstream `dev`, and `dev` is not deployed to either served deployment. Two
+independent reasons: **[maintainer]** their `*Viem` artifacts track the live contracts and are
+unaffected by `dev` ([§2](#2-abi-provenance-the-artifacts-are-deployed-the-solidity-is-not)), and
+**[live]** each reports `EvidenceModule.version()` `0.8.0` while **[inferred]** `0.8.0` is
+`master`'s constant. The contract half of the change is **cosmetic** anyway: `dev`'s
+`submitEvidence` body still only emits its argument, and the selector is unchanged.
 
 The substantive half is in the **indexer**. `dev` deletes `ClassicEvidenceGroup`, attaches evidence
 to the `Dispute` entity keyed by the core dispute ID, and **drops** evidence whose id matches no

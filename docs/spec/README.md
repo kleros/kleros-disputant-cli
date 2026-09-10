@@ -85,7 +85,9 @@ re-marked **[inferred]** and join them there. A claim that a fork test has since
 re-marked **[fork]** and moves out of that appendix; **[fork]** is stronger than **[live]** for
 anything production has never done, because production has no sample of it to read.
 
-> The `.sol` sources shipped in `@kleros/kleros-v2-contracts` are compiled from `master` and are
-> **not** the deployed code. They disagree with the deployment for exactly the contracts this tool
-> uses. Where this specification says **[abi]** it means the deployment artifact's ABI, which is
-> accurate; a claim read from the package's Solidity is **[inferred]** and marked so.
+> The `.sol` sources shipped in `@kleros/kleros-v2-contracts` track upstream `dev` and are **not**
+> the deployed code. They disagree with the deployment for exactly the contracts this tool uses.
+> The `*Viem` **deployment artifacts** in the same package are a different thing: they track the
+> live contracts of their own deployment and are unaffected by `dev` **[maintainer]**. So where
+> this specification says **[abi]** it means the deployment artifact's ABI, which is accurate; a
+> claim read from the package's Solidity is **[inferred]** and marked so. [01 §2](./01-onchain-reference.md).
