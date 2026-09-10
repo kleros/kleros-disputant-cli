@@ -3,11 +3,13 @@ import {
   BaseError,
   ContractFunctionRevertedError,
   decodeAbiParameters,
+  size,
   slice,
   toFunctionSelector,
 } from "viem";
 import { contractsFor } from "./deployment.js";
 import { DEPLOYMENT_SLUGS, DEPLOYMENTS } from "./deployments.js";
+import { boundForeign } from "./foreign-text.js";
 
 /**
  * Revert decoding — `spec/01 §5`, verified by `spec/05 §2.6`.
@@ -30,17 +32,34 @@ import { DEPLOYMENT_SLUGS, DEPLOYMENTS } from "./deployments.js";
  * test is what catches it.
  */
 
+/**
+ * What is said when the failure carries no sentence of its own.
+ *
+ * **This replaced `error.shortMessage || error.message`** (`ADR-0017`). viem's
+ * full `message` is its `shortMessage` plus the request dump — the contract
+ * address, the function, the arguments, the docs URL and, on a transport
+ * failure, **the endpoint URL**, whose path on a paid endpoint *is* the
+ * credential. Measured at 2283 characters carrying an API key. Nothing
+ * establishes that a viem error can ship an empty `shortMessage` and reach the
+ * right-hand side, and nothing needs to: a fixed sentence costs a caller
+ * nothing that the code beside it does not already say.
+ *
+ * `client.ts` redacts URLs out of the RPC cause for the same reason; this path
+ * declines to collect one in the first place.
+ */
+const NO_REASON = "The call failed and no reason was given.";
+
 /** `Error(string)` — Solidity's `require` reason. `DisputeResolver`'s own guards. */
 const ERROR_STRING = "0x08c379a0";
 /** `Panic(uint256)` — what an out-of-range array getter raises (`spec/01 §8`). */
 const PANIC = "0x4e487b71";
 
 /** The panic codes this tool can actually provoke. Anything else is reported by number. */
-const PANIC_REASONS: Record<string, string> = {
-  "0x01": "an assertion failed",
-  "0x11": "an arithmetic operation overflowed",
-  "0x32": "an array index is out of bounds",
-};
+const PANIC_REASONS: ReadonlyMap<string, string> = new Map([
+  ["0x01", "an assertion failed"],
+  ["0x11", "an arithmetic operation overflowed"],
+  ["0x32", "an array index is out of bounds"],
+]);
 
 type AbiErrorEntry = { type: string; name?: string; inputs?: readonly { type: string }[] };
 
@@ -99,42 +118,70 @@ export const ERROR_SELECTORS: ReadonlyMap<string, string> = new Map(
  * chain says rather than by what provoked it. Every row is one of `spec/01 §5`'s
  * four observed conditions.
  *
+ * **A `Map`, not an object literal, and that is load-bearing.** The key here
+ * comes off the wire: a contract reverting with `require(false, "constructor")`
+ * indexes an object literal straight into `Object.prototype`, which returns a
+ * *function*. `??` does not fall through on it — it is neither `null` nor
+ * `undefined` — so the bound is skipped and `guidance`, typed `string`, holds
+ * `function Object() { [native code] }` at runtime. A `Map` has no prototype
+ * chain to walk. `ERROR_SELECTORS` above was already one; the tables below
+ * follow for the same reason, though only this one takes a wire-controlled key.
+ *
  * `ShouldBeAtLeastTwoRulingOptions()` (`0x5fea5b86`) is deliberately **absent**.
  * It exists in the contracts package's Solidity, which is compiled from `master`
  * and is not the deployed code; the deployment reverts with the reason string
  * below instead (`spec/01 §2`, `§5`). Keying on it would silently stop matching
  * the day someone believed it.
  */
-const GUIDANCE_BY_REASON: Record<string, string> = {
-  "Should be at least 2 ruling options.":
+const GUIDANCE_BY_REASON: ReadonlyMap<string, string> = new Map([
+  [
+    "Should be at least 2 ruling options.",
     "The template offers fewer than two ruling options. Add answers to the template; the count " +
-    "is derived from them and is never a flag.",
-};
+      "is derived from them and is never a flag.",
+  ],
+]);
 
-const GUIDANCE_BY_ERROR: Record<string, string> = {
-  ArbitrationFeesNotEnough:
+const GUIDANCE_BY_ERROR: ReadonlyMap<string, string> = new Map([
+  [
+    "ArbitrationFeesNotEnough",
     "KlerosCore was sent less than arbitrationCost. The quote and the transaction must come from " +
-    "one invocation with byte-identical extraData; a cost that moved between the two is the " +
-    "usual cause. Nothing was created and the fee was not paid.",
-  DisputeKitNotSupportedByCourt:
+      "one invocation with byte-identical extraData; a cost that moved between the two is the " +
+      "usual cause. Nothing was created and the fee was not paid.",
+  ],
+  [
+    "DisputeKitNotSupportedByCourt",
     "The court does not support the requested dispute kit. Pre-flight reads isSupported on every " +
-    "invocation, so seeing this means court configuration changed between that read and this " +
-    "call. Nothing was created and the fee was not paid.",
-  ArbitrableNotWhitelisted:
+      "invocation, so seeing this means court configuration changed between that read and this " +
+      "call. Nothing was created and the fee was not paid.",
+  ],
+  [
+    "ArbitrableNotWhitelisted",
     "KlerosCore accepts createDispute only from a whitelisted arbitrable, and an EOA is never " +
-    "one. This tool writes through DisputeResolver, so this can only mean the call was aimed at " +
-    "the core directly.",
-};
+      "one. This tool writes through DisputeResolver, so this can only mean the call was aimed at " +
+      "the core directly.",
+  ],
+]);
 
 export type DecodedRevert = {
-  /** The reason string, the custom error name, or a panic description. `null` when neither. */
+  /**
+   * The reason string, the custom error name, or a panic description. `null`
+   * when neither. **Unbounded**, like `data` and for the same reason.
+   */
   reason: string | null;
   /**
-   * The revert data, **verbatim**. `spec/01 §5` requires unmapped data to be
-   * surfaced rather than swallowed, and this is where it survives.
+   * The revert data, **verbatim and unbounded**. `spec/01 §5` requires unmapped
+   * data be surfaced rather than swallowed, and this is where it survives —
+   * `guidance` now carries only a bounded prefix of it (`ADR-0017`). No output
+   * mode renders `details`, so the full data costs a CLI caller nothing and is
+   * there for a consumer importing this module from `dist/index.js`.
    */
   data: Hex | null;
-  /** What to tell the operator. Falls back to the raw data, never to silence. */
+  /**
+   * What to tell the operator, and the only field that reaches a `message`.
+   * Every fragment of it that came off the wire is bounded and stripped of
+   * control characters by `boundForeign` (`ADR-0017`); this repo's own
+   * sentences are not. Falls back to a fixed line, never to silence.
+   */
   guidance: string;
 };
 
@@ -147,13 +194,21 @@ export function decodeRevert(error: unknown): DecodedRevert {
     if (selector === ERROR_STRING) {
       const reason = decodeErrorString(raw);
       if (reason !== null) {
-        return { reason, data: raw, guidance: GUIDANCE_BY_REASON[reason] ?? reason };
+        return {
+          reason,
+          data: raw,
+          // Our own sentence at full length, or the contract's bounded
+          // (`ADR-0017`). A reason of nothing but control characters bounds to
+          // the empty string, and an empty guidance would render as a message
+          // that begins mid-sentence.
+          guidance: GUIDANCE_BY_REASON.get(reason) ?? (boundForeign(reason) || NO_REASON),
+        };
       }
     }
 
     if (selector === PANIC) {
       const code = decodePanicCode(raw);
-      const described = code === null ? null : PANIC_REASONS[code];
+      const described = code === null ? null : PANIC_REASONS.get(code);
       const reason = code === null ? "panic" : `panic ${code}`;
       return {
         reason,
@@ -169,29 +224,31 @@ export function decodeRevert(error: unknown): DecodedRevert {
       return {
         reason: name,
         data: raw,
-        guidance: GUIDANCE_BY_ERROR[name] ?? `The contract reverted with ${name}().`,
+        guidance: GUIDANCE_BY_ERROR.get(name) ?? `The contract reverted with ${name}().`,
       };
     }
 
-    // Unmapped: named by neither ABI. Surfaced verbatim rather than swallowed —
-    // a selector a reader can look up beats a message that lost it.
+    // Unmapped: named by neither ABI. Surfaced rather than swallowed — a
+    // selector a reader can look up beats a message that lost it. The selector
+    // is whole and the blob is bounded; `data` above keeps all of it
+    // (`spec/01 §5`, `ADR-0017`).
     return {
       reason: null,
       data: raw,
       guidance:
-        `The contract reverted with unrecognised data ${raw}. The selector ${selector} is in ` +
-        "neither KlerosCore's ABI nor DisputeResolver's nor EvidenceModule's, so the deployment " +
-        "may have moved ahead of this tool.",
+        `The contract reverted with unrecognised data ${boundForeign(raw)} (${size(raw)} bytes). ` +
+        `The selector ${selector} is in neither KlerosCore's ABI nor DisputeResolver's nor ` +
+        "EvidenceModule's, so the deployment may have moved ahead of this tool.",
     };
   }
 
   if (error instanceof BaseError) {
-    return { reason: null, data: raw, guidance: error.shortMessage || error.message };
+    return { reason: null, data: raw, guidance: boundForeign(error.shortMessage) || NO_REASON };
   }
   return {
     reason: null,
     data: raw,
-    guidance: error instanceof Error ? error.message : String(error),
+    guidance: boundForeign(error instanceof Error ? error.message : String(error)) || NO_REASON,
   };
 }
 

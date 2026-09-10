@@ -487,7 +487,16 @@ Normative:
   guards are `require` strings.
 - The CLI **MUST NOT** rely on `ShouldBeAtLeastTwoRulingOptions()` (`0x5fea5b86` **[computed]**).
   That error exists in the package's Solidity and is **not** what the deployment emits.
-- Unmapped revert data **MUST** be surfaced verbatim under a stable code rather than swallowed.
+- Unmapped revert data **MUST** be surfaced under a stable code rather than swallowed. What is
+  surfaced in the `message` is the **4-byte selector**, whole, followed by a bounded prefix of the
+  data and its total size in bytes; the data **MUST** also travel verbatim and unbounded on the
+  result, where no output mode renders it (`ADR-0013`) and a consumer importing the core can still
+  read it. Before `ADR-0017` the whole blob went into the `message`, which put 4 KiB of revert data
+  into 8418 characters of prose.
+- Every fragment of a revert `message` that this repo did not write — a reason string, the raw data,
+  viem's own sentence — **MUST** pass through `boundForeign` (`ADR-0017`): capped at 160 characters
+  with the cut marked, and stripped of control characters. This repo's own guidance **MUST NOT** be
+  bounded, and is deliberately longer than the cap in places.
 
 **[fork]** All four rows were re-forced on a fork and decoded by `reverts.ts` itself, so what is
 verified is not merely the raw data the chain returns but the sentence the operator receives

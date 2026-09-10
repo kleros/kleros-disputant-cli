@@ -56,7 +56,14 @@ import { describe, expect, it } from "vitest";
 
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
-/** Documents a reader follows. `.scratch/` is excluded — see the note above. */
+/**
+ * Documents a reader follows. `.scratch/` is excluded — see the note above.
+ *
+ * **The corpus is what `git ls-files` reports, so a brand-new document is
+ * unchecked until it is tracked.** Writing `docs/adr/00NN-….md` and running
+ * `pnpm test` proves nothing about its citations; `git add` first. Found by
+ * shipping a broken `../spec/…` link past a green suite (`ADR-0017`).
+ */
 const READER_FACING = (path: string): boolean =>
   path.startsWith("docs/") ||
   path.startsWith("skills/") ||

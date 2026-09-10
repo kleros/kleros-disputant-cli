@@ -2,6 +2,7 @@ import type { Address, PublicClient } from "viem";
 import { createPublicClient, fallback, getAddress, http } from "viem";
 import { contractsFor, type DeploymentContracts } from "./deployment.js";
 import type { Deployment } from "./deployments.js";
+import { boundForeign } from "./foreign-text.js";
 import { err, type KlerosResult, ok } from "./result.js";
 
 /**
@@ -303,15 +304,15 @@ function isSameAddress(a: string, b: Address): boolean {
   }
 }
 
-/** The longest cause summary that still keeps the payload small (`spec/03 §5.1`). */
-const CAUSE_LIMIT = 160;
-
 /**
  * One line naming what the endpoint actually said.
  *
  * viem's errors are several paragraphs — the docs URL, the request body, the
  * version banner — and `spec/03 §5.1` requires the payload stay small, so this
- * takes the one part that distinguishes one `RPC_ERROR` from another. viem's
+ * takes the one part that distinguishes one `RPC_ERROR` from another. The cap
+ * itself is no longer kept here: `ADR-0013` chose 160 characters, and
+ * `ADR-0017` made that the shared bound for every fragment this repo did not
+ * write, so this hands the line to `boundForeign`. viem's
  * `BaseError` carries the node's own words in `details` and its own one-line
  * summary in `shortMessage`; anything else falls back to the first line.
  *
@@ -346,8 +347,7 @@ function summarizeCause(cause: unknown): string | undefined {
 
   const line = candidate.split("\n").map((part) => part.trim())[0] ?? "";
   if (!line) return undefined;
-  const redacted = redactUrls(line);
-  return redacted.length > CAUSE_LIMIT ? `${redacted.slice(0, CAUSE_LIMIT - 1)}…` : redacted;
+  return boundForeign(redactUrls(line)) || undefined;
 }
 
 /** The `message` of a JSON-RPC error object, when `details` is one. */

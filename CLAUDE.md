@@ -98,7 +98,10 @@ wins and is named.
   `spec/03 §5`
 - **incur's error envelope is closed.** A fact the caller needs goes in `message`, in
   `details.hint` (appended to `message`), or in the `cta` — and nowhere else. **No output mode
-  renders `details`**, so any other key on it is invisible to callers. `ADR-0013`
+  renders `details`**, so any other key on it is invisible to callers. Text that arrived from the
+  chain or the endpoint — a revert reason, raw revert data, viem's own sentence — goes through
+  `boundForeign` before it reaches a `message`: 160 characters, cut marked, control characters
+  stripped. Our own guidance is never bounded. `ADR-0013`, `ADR-0017`
 - **A chain ID does not name a deployment** — at least three share 421614. What is pinned is a
   deployment: the `eth_chainId` assertion is a runtime check against *that deployment's* expected
   ID, never a viem `chain:` field, and **no contract call may precede it**. `--chain` (alias `-c`)

@@ -196,7 +196,10 @@ incur the error, whose envelope is closed. §5.4 has the consequences.
 3. **A prose `message` restates the machine state.** `"broadcast": false` alone is not enough for an
    LLM consumer.
 4. Output is kept small. The template body and the evidence text **MUST NOT** be echoed back in
-   full.
+   full, and neither **MUST** anything that arrived from the chain or the endpoint: a revert reason,
+   raw revert data and viem's own sentence are each capped at **160 characters** with the cut marked,
+   and stripped of control characters (`ADR-0017`, `ADR-0013`). The cap is on the foreign fragment,
+   not on the message — this repo's own guidance runs past it and is not truncated.
 
 ### 5.2 `create-dispute`, simulate only
 

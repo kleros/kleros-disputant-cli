@@ -1,5 +1,10 @@
+import { ContractFunctionRevertedError, encodeErrorResult, parseEther } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import { describe, expect, it } from "vitest";
+import { simulateAndMaybeBroadcast } from "../../core/broadcast.js";
+import { contractsFor } from "../../core/deployment.js";
 import { DEFAULT_DEPLOYMENT, DEPLOYMENTS } from "../../core/deployments.js";
+import { FOREIGN_TEXT_LIMIT } from "../../core/foreign-text.js";
 import type { ErrorCode } from "../../core/result.js";
 import { err, ok } from "../../core/result.js";
 import { ctaFor, exitCodeFor, finish, prepareLocal } from "../shared.js";
@@ -391,5 +396,98 @@ describe("the balance CTA follows the path, not the code", () => {
     // name a subcommand of this CLI. The remedy is funding the account, which
     // is not one — it travels in `details.hint` (`spec/03 §5.4`).
     expect(ctaFor("INSUFFICIENT_BALANCE", { dispute: "1" })).toBeUndefined();
+  });
+});
+
+/**
+ * `ADR-0017` — the bound is worth nothing if the command layer puts the size
+ * back. `finish` appends `details.hint` and the deployment suffix after core
+ * has had its say, so the only honest place to measure a rendered message is
+ * here, with a real revert underneath rather than a fabricated `err()`.
+ *
+ * The 8 KiB payload is the one measured through the built binary, where it
+ * produced **8250 characters** of `message`
+ * (`.scratch/revert-message-bounds/spec.md`).
+ */
+describe("a rendered revert message stays small", () => {
+  const contracts = contractsFor(DEFAULT_DEPLOYMENT);
+
+  /** The same incur-context double the `finish` suite uses, in this scope. */
+  const context = () => {
+    const seen: { error?: Record<string, unknown> } = {};
+    return {
+      seen,
+      c: {
+        error: ((options: Record<string, unknown>) => {
+          seen.error = options;
+          return undefined as never;
+        }) as never,
+      },
+    };
+  };
+
+  const reverting = (reason: string) =>
+    ({
+      async simulateContract() {
+        throw new ContractFunctionRevertedError({
+          abi: contracts.disputeResolver.abi as never,
+          data: encodeErrorResult({
+            abi: [{ type: "error", name: "Error", inputs: [{ type: "string" }] }],
+            errorName: "Error",
+            args: [reason],
+          }),
+          functionName: "createDisputeForTemplate",
+        });
+      },
+    }) as never;
+
+  const reverted = (reason: string) =>
+    simulateAndMaybeBroadcast({
+      client: reverting(reason),
+      account: privateKeyToAccount(
+        "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+      ),
+      target: {
+        address: contracts.disputeResolver.address,
+        abi: contracts.disputeResolver.abi as never,
+      },
+      call: { functionName: "createDisputeForTemplate", args: [] },
+      broadcast: false,
+      timeoutMs: 1_000,
+      balanceWei: parseEther("1"),
+      rpcUrls: ["http://127.0.0.1:1"],
+      deployment: DEFAULT_DEPLOYMENT,
+    } as never);
+
+  it("renders an 8 KiB revert string as a short line, cut visibly", async () => {
+    const result = await reverted("A".repeat(8192));
+    expect(result.success).toBe(false);
+    if (result.success) return;
+
+    const { seen, c } = context();
+    finish(c as never, result, { chain: "arbitrum-one" });
+    const message = String(seen.error?.message);
+
+    // Measured at 8250 before the bound; the whole rendered envelope now fits
+    // in a fraction of one fragment's former length.
+    expect(message.length).toBeLessThan(FOREIGN_TEXT_LIMIT + 120);
+    expect(message).toContain("…");
+    expect(seen.error?.code).toBe("SIMULATION_REVERTED");
+    // The parts the caller acts on survive the cut, at both ends.
+    expect(message).toContain("Nothing was sent.");
+    expect(message).toContain("Deployment: arbitrum-one (chain 42161).");
+  });
+
+  it("keeps a control character out of what the caller is handed", async () => {
+    const result = await reverted(`Reverted.\n${String.fromCharCode(0x1b)}[2J{"success":true}`);
+    expect(result.success).toBe(false);
+    if (result.success) return;
+
+    const { seen, c } = context();
+    finish(c as never, result, { chain: "arbitrum-one" });
+    const message = String(seen.error?.message);
+
+    expect(message).not.toContain(String.fromCharCode(0x1b));
+    expect(message).not.toContain("\n");
   });
 });
