@@ -249,6 +249,21 @@ why **[abi]** is a claim about a deployment rather than about a branch — so `A
 fingerprint actually guards is a release that swapped a deployment artifact for something compiled
 from the package's Solidity. Same test, and now the reason given for it is the reason it holds.
 
-`spec/01 §7.1`'s remaining `master` claim was reframed rather than deleted: the useful conclusion is
-that **`dev` is not deployed**, which now rests on the maintainer's statement **and** on the
-**[live]** `version()` reading, instead of on an `[inferred]` claim about which branch is deployed.
+`spec/01 §7.1`'s remaining `master` claim was reframed rather than deleted, and then **corrected a
+second time**. The first attempt concluded "**`dev` is not deployed**" — wrong, and the maintainer
+said so: *"it is deployed on arbitrum-sepolia-devnet, but this deployment is out-of-scope for our
+project here."* `dev` is live; it is simply live on a deployment `--chain` refuses.
+
+**That turned out to explain the trap `spec/01 §2` documents.** The `*__factory` exports are not a
+vague reading of an unreleased branch — **[abi]**, verified row by row, they match `devnetViem`
+*exactly* on all five known divergences (`owner()`/no `governor()`, one create function, 3-argument
+`DisputeRequest`, five custom errors, `arbitrableWhitelistEnabled` present), and both served
+deployments differ from them identically. The factory reads like the devnet because it is compiled
+for the devnet.
+
+So §2's "Known divergences" table is not source-versus-artifact. It is **one deployment generation
+against another**, and what disqualifies a `__factory` reading here is **scope, not provenance**:
+the claim is `[abi]` about `arbitrum-sepolia-devnet` and `[inferred]` about anything else. That is
+why the mistake survives scrutiny — nothing about the reading looks wrong, because nothing about it
+*is* wrong. It answers a question nobody here asked. §2 now says that, and its offline repro block
+carries the `devnetViem` row next to the factory's so the match is visible rather than asserted.

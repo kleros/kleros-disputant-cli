@@ -174,32 +174,52 @@ easy to mistake for each other.
   `dev`.** They track the live contracts of *their own* deployment. So `mainnetViem` and
   `testnetViem` are the deployed ABIs, not a snapshot of a branch, and they are what this
   specification cites and what the CLI binds to.
+- **`dev` is itself deployed** — to `arbitrum-sepolia-devnet`, which this project does not serve.
 
-That second half is the load-bearing one: it is why importing from the package is safe at all
+That second point is the load-bearing one: it is why importing from the package is safe at all
 ([ADR-0006](../adr/0006-deployment-imported-from-contracts-package.md)) rather than merely
 convenient, and why **[abi]** is a claim about a deployment rather than about a branch.
+
+The third is what makes the trap below sharp rather than merely annoying. A `__factory` reading is
+not vague, and it is not a guess about an unreleased branch: **it is an accurate description of a
+real deployment on chain 421614** that this tool refuses by name. That is why it survives scrutiny
+for so long — nothing about it looks wrong, because nothing about it *is* wrong. It answers a
+question nobody here asked.
 
 > **The trap is inside one package, not between the package and the chain** **[computed]**, and it
 > is reproducible offline:
 >
 > ```
 > EvidenceModule__factory.abi          submitEvidence arg0 = _arbitratorDisputeID   owner()
+> devnetViem.evidenceModuleAbi         submitEvidence arg0 = _arbitratorDisputeID   owner()     <- not served
+> testnetViem.evidenceModuleAbi        submitEvidence arg0 = _externalDisputeID     governor()
 > mainnetViem.evidenceModuleAbi        submitEvidence arg0 = _externalDisputeID     governor()
 > ```
 >
-> Reading the factory export answers a question about `dev` while appearing to answer one about the
-> deployment. It cost an hour on 2026-09-09, when the factory's parameter name was briefly taken as
-> evidence against [02 §4.2](./02-payload-construction.md).
+> Reading the factory export answers a question about the **devnet** while appearing to answer one
+> about the deployment you are filing on. **[abi]** the factory agrees with `devnetViem` on both
+> discriminators above and disagrees with both served deployments on both — because the devnet runs
+> `dev`. (The two are not byte-identical: 17 ABI entries against the devnet artifact's 19. Close
+> enough to mislead, which is the point.) It cost an hour on 2026-09-09, when the factory's
+> parameter name was briefly taken as evidence against [02 §4.2](./02-payload-construction.md).
 
 Known divergences, all **[abi]**:
 
-| Claim | Package Solidity / `__factory` (`dev`) | Deployed ABI (`*Viem`, live) |
+| Claim | Package Solidity / `__factory` (`dev`, = the devnet) | Served deployments' ABI (`*Viem`, live) |
 | --- | --- | --- |
 | `DisputeResolver` ownership accessor | `owner()` | **`governor()`**, selector `0x0c340a24` |
 | `DisputeResolver` create functions | one | **two** — inline and by URI |
 | `DisputeResolver.DisputeRequest` arity | 3 | **5** |
 | `DisputeResolver` custom errors | `ShouldBeAtLeastTwoRulingOptions()` and others | **zero** |
 | `KlerosCore.arbitrableWhitelistEnabled()` | present | **absent** |
+
+**[abi]** Every row was checked against `devnetViem` as well, and the left column is that
+deployment's, exactly — `owner()`/no `governor()`, one create function, a 3-argument
+`DisputeRequest`, five custom errors, `arbitrableWhitelistEnabled` present. The two served
+deployments differ from it identically. So this is not a source-versus-artifact table: it is a table
+of **one deployment generation against another**, and the `__factory` exports read like the older
+one because that is the one they are compiled for. Reading it as "source is stale" understates it —
+the left column is live on chain 421614 right now.
 
 Consequences, normative:
 
@@ -208,8 +228,9 @@ Consequences, normative:
   ABI compiled from the package's Solidity, which includes the `*__factory.abi` exports, whose
   shape is `dev`'s. The two namespaces are **not** interchangeable (§1.0b), so binding one
   deployment's ABI to the other's addresses is as wrong as binding `dev`'s. This applies to reading
-  them for evidence as much as to binding: a claim read from a `__factory` is **[inferred]** about a
-  branch this repo does not target, never **[abi]**.
+  them for evidence as much as to binding: a claim read from a `__factory` is **[abi]** about
+  `arbitrum-sepolia-devnet` and **[inferred]** about anything else — never **[abi]** here. What
+  disqualifies it is **scope, not provenance**, and that is the easier mistake to miss.
 - The CLI **SHOULD** read `version()` where the contract offers one and **warn**, never fail, on a
   mismatch. `DisputeResolver` offers none, so no version check is possible for it.
 - Revert decoding **MUST** follow §5 exactly, because the divergence lands squarely there.
@@ -610,12 +631,15 @@ caller name the deployment and then asserts the chain ID *that deployment* expec
 resolving a deployment from the chain ID
 ([ADR-0015](../adr/0015-a-deployment-is-not-a-chain.md)).
 
-The rename lives on upstream `dev`, and `dev` is not deployed to either served deployment. Two
-independent reasons: **[maintainer]** their `*Viem` artifacts track the live contracts and are
-unaffected by `dev` ([§2](#2-abi-provenance-the-artifacts-are-deployed-the-solidity-is-not)), and
-**[live]** each reports `EvidenceModule.version()` `0.8.0` while **[inferred]** `0.8.0` is
-`master`'s constant. The contract half of the change is **cosmetic** anyway: `dev`'s
-`submitEvidence` body still only emits its argument, and the selector is unchanged.
+The rename lives on upstream `dev`. **`dev` is deployed** — **[maintainer]** to
+`arbitrum-sepolia-devnet`, which this project does not serve ([ADR-0015](../adr/0015-a-deployment-is-not-a-chain.md))
+— so the rename is live somewhere, just not on either deployment served here. Two independent
+reasons it is not: **[maintainer]** the served deployments' `*Viem` artifacts track their own live
+contracts and are unaffected by `dev`
+([§2](#2-abi-provenance-the-artifacts-are-deployed-the-solidity-is-not)), and **[live]** each
+reports `EvidenceModule.version()` `0.8.0` while **[inferred]** `0.8.0` is `master`'s constant. The
+contract half of the change is **cosmetic** anyway: `dev`'s `submitEvidence` body still only emits
+its argument, and the selector is unchanged.
 
 The substantive half is in the **indexer**. `dev` deletes `ClassicEvidenceGroup`, attaches evidence
 to the `Dispute` entity keyed by the core dispute ID, and **drops** evidence whose id matches no
