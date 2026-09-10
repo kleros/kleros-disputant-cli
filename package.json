@@ -1,6 +1,6 @@
 {
   "name": "@kleros/kleros-disputant-cli",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Headless CLI for creating Kleros v2 disputes and submitting evidence on Arbitrum One and the Arbitrum Sepolia testnet",
   "license": "MIT",

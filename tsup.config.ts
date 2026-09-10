@@ -25,9 +25,11 @@ export default defineConfig({
   dts: true,
   /**
    * **Shipped deliberately, not by default.** The maps are 1.9 MB of a 3.4 MB
-   * unpacked package — but only 268 kB packed, and this tool spends real ETH on
-   * an action that cannot be undone. A legible stack trace in a stranger's bug
-   * report is worth more than the bytes. Revisit if the packed size grows.
+   * unpacked package — but only 280 kB packed (`pnpm publish --dry-run` at
+   * `0.1.0`; `npm pack` reports 269 kB, so name the instrument), and this tool
+   * spends real ETH on an action that cannot be undone. A legible stack trace in
+   * a stranger's bug report is worth more than the bytes. Revisit if the packed
+   * size grows.
    */
   sourcemap: true,
   // The bundled deployment modules are CommonJS and `require("viem")`, which esbuild

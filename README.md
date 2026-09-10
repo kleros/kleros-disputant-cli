@@ -10,7 +10,7 @@
   <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg">
   <img alt="Node >=22" src="https://img.shields.io/badge/node-%3E%3D22-3c873a.svg">
   <img alt="Chains: Arbitrum One and Arbitrum Sepolia" src="https://img.shields.io/badge/chains-Arbitrum%20One%20%7C%20Arbitrum%20Sepolia-28a0f0.svg">
-  <img alt="Status: pre-release" src="https://img.shields.io/badge/status-pre--release-orange.svg">
+  <img alt="npm version" src="https://img.shields.io/npm/v/@kleros/kleros-disputant-cli.svg">
 </p>
 
 ---
@@ -62,22 +62,27 @@ the ones that can change the decision to sign.
 
 ## Status
 
-**Pre-release.** All five commands are built and tested. The read paths are verified live against
-Arbitrum One; the second deployment's addresses, versions and wiring are verified live on Arbitrum
-Sepolia. **The full lifecycle has run against the live v2 testnet** under `pnpm test:acceptance` —
-quote, simulate, create, submit evidence, status, each through the built binary in its own process
-— which created core dispute 128 in court 1 and filed evidence against it under local dispute 78.
-Those two IDs are the record of one run, not a fixture: the suite creates a new dispute every time
-it runs. Both
-write paths also broadcast on an Arbitrum One fork under `pnpm test:fork`, and `upload-file` is
-measured against the live pinning endpoint.
+**Pre-1.0.** `0.1.0` is the first release, and the badge above tracks what the registry actually
+has — a version here would only drift from it. The `0.x` line says the surface may still move, not
+that this is a prerelease. All five commands are built and tested. The read paths are verified live
+against Arbitrum One; the second deployment's addresses, versions and wiring are verified live on
+Arbitrum Sepolia. **The full lifecycle has run against the live v2 testnet** under
+`pnpm test:acceptance` — quote, simulate, create, submit evidence, status, each through the built
+binary in its own process — which created core dispute 128 in court 1 and filed evidence against it
+under local dispute 78. Those two IDs are the record of one run, not a fixture: the suite creates a
+new dispute every time it runs. Both write paths also broadcast on an Arbitrum One fork under
+`pnpm test:fork`, and `upload-file` is measured against the live pinning endpoint.
 
 **The tool has broadcast three times, all on the v2 testnet.** That count is the signing key's nonce
 on Arbitrum Sepolia rather than a tally kept by hand, so it cannot drift from what the chain says.
 
-**No transaction has been broadcast to Arbitrum One.** The testnet rehearsal that exists to precede
-it has now happened; the Beta deployment has not been written to. Treat the first live dispute
-there as the shakedown run, on a cheap court, with a ceiling you can afford to lose.
+**No transaction has been broadcast to Arbitrum One by this tool**, and releasing does not change
+that. The count here is **0**, and unlike the three above it is not a nonce: that key's nonce on
+Arbitrum One is 12, none of them ours, so the 0 is stated with the 12 or it misleads. The testnet
+rehearsal that exists to precede the first Beta write has happened; the write itself has not, and it
+will be made with the released package rather than from a working tree
+([ADR-0018](docs/adr/0018-the-release-precedes-the-first-arbitrum-one-write.md)). Treat that first
+live dispute as the shakedown run, on a cheap court, with a ceiling you can afford to lose.
 
 | Command | Signing key | On-chain write |
 | --- | :---: | --- |
@@ -87,11 +92,9 @@ there as the shakedown run, on a cheap court, with a ceiling you can afford to l
 | `submit-evidence` | required | `submitEvidence`, only with `--broadcast` |
 | `upload-file` | — | never — no chain at all, only with `--publish` |
 
-Nothing is published to npm yet, deliberately — see [`CHANGELOG.md`](CHANGELOG.md).
-
 ## Requirements
 
-- **Node.js ≥ 22** and [pnpm](https://pnpm.io)
+- **Node.js ≥ 22**. [pnpm](https://pnpm.io) as well, but only to build from source
 - An **RPC endpoint for the deployment you are acting on** — Arbitrum One by default, Arbitrum
   Sepolia with `--chain arbitrum-sepolia-testnet`. The public ones work and are rate-limited; pass
   your own with `--rpc-url` (comma-separated for automatic failover), or export
@@ -104,7 +107,16 @@ Nothing is published to npm yet, deliberately — see [`CHANGELOG.md`](CHANGELOG
 ## Install
 
 ```bash
-git clone git@github.com:kleros/kleros-disputant-cli.git
+npm i -g @kleros/kleros-disputant-cli    # puts `kleros-disputant` on your PATH
+kleros-disputant --version
+```
+
+Or run it without installing: `npx @kleros/kleros-disputant-cli arbitration-cost --court 1 --jurors 3`.
+
+From source, which is what you want if you intend to change it:
+
+```bash
+git clone https://github.com/kleros/kleros-disputant-cli.git
 cd kleros-disputant-cli
 pnpm install
 pnpm build
@@ -356,7 +368,12 @@ hand and carries what a generator cannot: the order to call things in, what each
 costs, and a troubleshooting table keyed on error `code`. It restates no flags, for the same reason
 this file does not.
 
-The framework-free core is importable too, if you would rather build the calls yourself:
+The framework-free core is importable too, if you would rather build the calls yourself — the same
+package, installed locally rather than globally:
+
+```bash
+npm i @kleros/kleros-disputant-cli
+```
 
 ```ts
 import { encodeExtraData, buildTemplate, checkPreflight } from "@kleros/kleros-disputant-cli";
@@ -400,7 +417,7 @@ Node's own `fetch`, `FormData` and `Blob`, so it adds no third.
 | [`docs/spec/`](docs/spec/) | The normative specification. Start at its [`README.md`](docs/spec/README.md) for the map, the reading order and the verification markers |
 | [`docs/adr/`](docs/adr/) | One file per decision a reader would otherwise question. Numbers 0003 and 0005 are deliberately unused — juror-only decisions this repo never made, left as gaps so `ADR-0004` means the same thing in both repos |
 | [`CLAUDE.md`](CLAUDE.md) | The invariants, as a guard-rail index for agents contributing to this repo |
-| [`CHANGELOG.md`](CHANGELOG.md) | What changed, and why nothing is on npm yet |
+| [`CHANGELOG.md`](CHANGELOG.md) | What changed in each released version, and what the release retired |
 
 This repo inherited no specification: one was written here from the deployed contracts, and every
 chain fact in it carries a marker saying how it was established — `[live]`, `[fork]`, `[abi]`,
@@ -421,8 +438,7 @@ What is **done** is described under [Status](#status), not repeated here — a r
 completed items is a changelog with checkboxes, and the same fact asserted in two places goes stale
 in two places.
 
-- [ ] Fund the signing key on Arbitrum One and make the first Beta write, then publish `0.1.0`
-      (`.scratch/release-0.1.0/`)
+- [ ] Fund the signing key on Arbitrum One and make the first Beta write
 - [ ] Upstreaming `src/core/` into `@kleros/agentkit` once its write milestone lands
 
 ## Contributing
@@ -444,8 +460,8 @@ Please do not open a public issue for a vulnerability in key handling, payload c
 broadcast path. Use GitHub's private vulnerability reporting on this repository, or contact the
 maintainers directly.
 
-This is pre-release software that holds a key and spends real ETH on an irreversible action. Read
-the code before you point it at a real dispute.
+This is pre-1.0 software that holds a key and spends real ETH on an irreversible action. Read the
+code before you point it at a real dispute.
 
 ## License
 

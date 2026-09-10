@@ -14,6 +14,14 @@ One, then the first npm release."* Nothing here changes that. The work splits al
   the version, the CHANGELOG entry, and every sentence that says nothing is on npm. It lands after
   the first Arbitrum One write, with the tallies rewritten to what is then true.
 
+> **Superseded on 2026-09-10, by the maintainer.** The ordering above is reversed: `0.1.0` ships
+> first, and the first Arbitrum One write is made with the released package. The testnet lifecycle
+> already exercised that write's exact shape, and a Beta write spends real ETH and draws real jurors,
+> so it is worth making once — against the artifact a stranger installs. Phase B therefore landed
+> with the Arbitrum One tally still **0 by this tool**, against a nonce of 12 there. The
+> "Measured" table below is left as it was taken: phase B is what turned its `0.0.0` row over.
+> See `ADR-0018`.
+
 Doing Phase A early is what keeps Phase B a small, checkable diff instead of a rewrite performed
 under release pressure.
 

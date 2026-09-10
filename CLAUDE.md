@@ -18,11 +18,11 @@ handoff** the repo was seeded from, and `spec/appendix-a §3` quotes every super
 correcting it, because each one is a claim someone already believed — including two of the spec's
 own, which the fork tests overturned (`spec/appendix-a §3.5`).
 
-Status: pre-release, unpublished. `src/core/`, `src/commands/`, the fork tests and the acceptance
-test are complete — the pure functional core, the deployment pinned by a fingerprint test, the read
-layer, the transaction path, the five commands on incur, and `spec/05 §2`'s seven fork tests, which
-**broadcast on a fork** and settled three of Appendix A's five unverified claims. The skill and
-`README.md` are written; `upload-file` **has run against the live endpoint**.
+Status: `0.1.0`, the first release; pre-1.0. `src/core/`, `src/commands/`, the fork tests and the
+acceptance test are complete — the pure functional core, the deployment pinned by a fingerprint
+test, the read layer, the transaction path, the five commands on incur, and `spec/05 §2`'s seven
+fork tests, which **broadcast on a fork** and settled three of Appendix A's five unverified claims.
+The skill and `README.md` are written; `upload-file` **has run against the live endpoint**.
 
 **Both deployments are served and the v2 testnet feature is closed** — its spec and eight tickets
 are in `.scratch/testnet-support/`, and what a reader needs from them is in `ADR-0014` (the
@@ -31,8 +31,10 @@ evidence identifier defect, a **Beta** defect the testnet exposed rather than te
 
 **The tool has broadcast three times, all on the v2 testnet** — the count is the signing key's nonce
 there, not a tally kept by hand. `pnpm test:acceptance` ran the full lifecycle through the built
-binary and created core dispute 128. **No transaction has been broadcast to Arbitrum One**, and
-that first Beta write is what remains, ahead of the first npm release.
+binary and created core dispute 128. **No transaction has been broadcast to Arbitrum One by this
+tool** — the key's nonce there is 12 and none of them are ours, so that 0 is a count and always
+carries its denominator. That first Beta write is what remains, now **after** the release and made
+with the published package (`ADR-0018`). Releasing changes neither number.
 
 ```
 pnpm test             # unit + guard tests. A suite whose prerequisite is absent self-skips loudly
