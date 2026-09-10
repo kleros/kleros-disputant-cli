@@ -28,7 +28,9 @@ on the branch you most need to read. A CTA moves to `meta.cta` there.
 Flags are deliberately not restated here, because a copy of them goes stale. Run
 `kleros-disputant <command> --help`, `kleros-disputant --llms-full` for the whole manifest, or
 `kleros-disputant <command> --schema` for JSON Schema. If `kleros-disputant` is not on PATH it is not
-installed, and this skill cannot install it — the repository's README covers that.
+installed, and this skill cannot install it — the repository's README covers that. The `version` in
+this file's frontmatter is **this skill's own**, and does not track the version of the
+`@kleros/kleros-disputant-cli` package it ships inside.
 
 ## Which deployment
 
@@ -153,6 +155,7 @@ kleros-disputant create-dispute --court 1 --jurors 3 \
   --template-file ./dispute.json --max-cost-eth 0.02 --key-file ~/.kleros-disputant/key --broadcast
 
 # 5. Where does the dispute stand, and can evidence submitted now still reach jurors?
+# 215 is an example ID throughout this file, not a dispute to go looking for.
 kleros-disputant status --dispute 215
 
 # 6. Submit one evidence document. Dry run first, then re-run with --broadcast appended.
@@ -201,8 +204,9 @@ simulation.
   one whose dispute a **different arbitrable** created. Either submission would succeed and then be
   unreachable by anything that reads the case. The second is not about who filed the case: every
   dispute on this deployment routes through the same arbitrable, including one filed from the Kleros
-  Court web client, so all of them are reachable today. That was counted on `arbitrum-one`; the
-  testnet has a second arbitrable, so there the refusal is reachable.
+  Court web client, so all of them were reachable when this was counted on `arbitrum-one`
+  (**2026-09-08**) — a census of a live deployment, so treat it as of that date rather than as a
+  standing property; the testnet has a second arbitrable, so there the refusal is reachable.
 - A receipt is waited for up to two minutes. That is not configurable, and the wait timing out is
   reported as `unknown` rather than as an error.
 
@@ -230,7 +234,7 @@ or its outcome · `4` signing key.
 | `COURT_OUT_OF_RANGE` | Court IDs start at 1 — court 0 is the Forking Court and is never a target. If the court could not be confirmed to exist, do not retry with the same ID: a paid dispute would land in the General Court |
 | `COURT_DISABLED` | That court takes no new disputes. Pick another and re-quote |
 | `JURORS_INVALID` | `--jurors` must be at least 1. Zero is replaced by the arbitrator's own default and charged for |
-| `DISPUTE_KIT_OUT_OF_RANGE`, `DISPUTE_KIT_NOT_SUPPORTED` | Every court supports kit 1 (Classic) on `arbitrum-one`, where that was measured, so kit 1 is the safe request there. Support for any other kit is per court and a few courts do have one, so a refusal here is about the pairing, not about the kit. It is re-read with `isSupported` on every invocation and never cached: trust the refusal over any table, this one included |
+| `DISPUTE_KIT_OUT_OF_RANGE`, `DISPUTE_KIT_NOT_SUPPORTED` | Every court supported kit 1 (Classic) on `arbitrum-one` when this was measured (**2026-09-08**), so kit 1 is the safe request there. Support for any other kit is per court and a few courts do have one, so a refusal here is about the pairing, not about the kit. It is re-read with `isSupported` on every invocation and never cached: trust the refusal over any table, this one included |
 | `TEMPLATE_INVALID` | `--template-file` takes a *path*. The message names the reason: unreadable, not JSON, an unknown field, an `arbitratorAddress` that is not an address, or an arbitrator field that disagrees with `--chain` — for that last one the fix is to **delete** the field, not to retype it |
 | `RULING_OPTIONS_INVALID` | The template needs at least two answers, with hex ids from `0x1` up, no duplicates once normalised, and never `0x0` — that id is reserved for refusing to arbitrate |
 | `POLICY_URI_INVALID` | `policyURI` must be a multiaddr such as `/ipfs/Qm…`. A plain `https://` URL is refused, because the Kleros Court web client's own schema refuses it |
@@ -238,7 +242,7 @@ or its outcome · `4` signing key.
 | `COST_CEILING_EXCEEDED` | The quote is above `--max-cost-eth`. Raise the ceiling only if that price is intended; the cost is paid on creation and cannot be recovered |
 | `INSUFFICIENT_BALANCE` | The account cannot cover the arbitration cost, or the cost plus estimated gas. Reaches `submit-evidence` too, where the whole shortfall is gas. Fund it with ETH on the selected deployment's chain — Arbitrum One, or Arbitrum Sepolia for the testnet. It sends its own transactions and there is no relayer |
 | `DISPUTE_NOT_FOUND` | No dispute uses that ID. `--dispute` takes the core dispute ID, the one Kleros Court shows — not a local or external one |
-| `DISPUTE_NOT_ADDRESSABLE` | The dispute is real, but a different arbitrable created it, and only that contract can say how its evidence is addressed. Retrying will not help; the message names the owner. Not reachable on `arbitrum-one` today, where one resolver created every dispute that exists; reachable on the testnet |
+| `DISPUTE_NOT_ADDRESSABLE` | The dispute is real, but a different arbitrable created it, and only that contract can say how its evidence is addressed. Retrying will not help; the message names the owner. Not reachable on `arbitrum-one` as of **2026-09-08**, when one resolver had created every dispute there; reachable on the testnet |
 | `FILE_UNREADABLE`, `FILE_EMPTY` | `--file` takes one readable, non-empty regular file. The endpoint pins exactly one file per request |
 | `FILE_TOO_LARGE` | The practical ceiling is around 4.6 MB of file. Split or compress it, and submit one document per file |
 

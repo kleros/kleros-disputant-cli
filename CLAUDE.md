@@ -18,28 +18,21 @@ handoff** the repo was seeded from, and `spec/appendix-a §3` quotes every super
 correcting it, because each one is a claim someone already believed — including two of the spec's
 own, which the fork tests overturned (`spec/appendix-a §3.5`).
 
-Status: bootstrapping. `src/core/`, `src/commands/` and the fork tests are complete — the pure
-functional core, the deployment pinned by a fingerprint test, the read layer, the transaction path,
-the five commands on incur, and `spec/05 §2`'s seven fork tests, which **broadcast on a fork** and
-settled three of Appendix A's five unverified claims. The skill and `README.md` are written;
-`upload-file` was added out of order on maintainer instruction and **has run against the live
-endpoint**. Nothing published to npm, and **no transaction broadcast on Arbitrum One**. Next is
-**v2 testnet support**, specced and ticketed in `.scratch/testnet-support/`: it precedes the
-acceptance test, which moved from a pinned fork to the live testnet. Tickets 01, 02 and 03 are
-done — the deployment model (`ADR-0015`), the evidence identifier defect, which was a **Beta**
-defect the testnet exposed, not testnet scope (`ADR-0014`), `--chain`, and **ticket 04 — the v2
-testnet served**, with per-deployment ABIs, the RPC override variables honoured (`ADR-0016`) and a
-differential test pinning that the two deployments answer identically, and **ticket 06 — the
-stranger-facing sweep**, which also fixed a `pnpm build` broken since 04 (the bundler alias in
-`build/` is reached only by the build, never by the suite; `build-alias.test.ts` now guards it).
-**Ticket 08 retired the bootstrapping handoff** the repo was seeded from, rehousing its live content
-and leaving `citations.test.ts` to hold the rule that a citation resolves in a fresh clone, and
-**ticket 07 made the template name its own deployment's arbitrator** — both fields derived from
-`--chain` when absent, a mismatch refused offline (`spec/02 §3.2`), and **ticket 05 — the
-acceptance test, run against the LIVE v2 testnet**: the full lifecycle through the built binary in
-separate processes, which created core dispute 128 there. **The testnet feature is closed.** The
-tool has now broadcast, so the standing claim is narrower than it was: **no transaction has been
-broadcast to Arbitrum One**, and that first Beta write is what remains.
+Status: pre-release, unpublished. `src/core/`, `src/commands/`, the fork tests and the acceptance
+test are complete — the pure functional core, the deployment pinned by a fingerprint test, the read
+layer, the transaction path, the five commands on incur, and `spec/05 §2`'s seven fork tests, which
+**broadcast on a fork** and settled three of Appendix A's five unverified claims. The skill and
+`README.md` are written; `upload-file` **has run against the live endpoint**.
+
+**Both deployments are served and the v2 testnet feature is closed** — its spec and eight tickets
+are in `.scratch/testnet-support/`, and what a reader needs from them is in `ADR-0014` (the
+evidence identifier defect, a **Beta** defect the testnet exposed rather than testnet scope),
+`ADR-0015` and `ADR-0016`.
+
+**The tool has broadcast three times, all on the v2 testnet** — the count is the signing key's nonce
+there, not a tally kept by hand. `pnpm test:acceptance` ran the full lifecycle through the built
+binary and created core dispute 128. **No transaction has been broadcast to Arbitrum One**, and
+that first Beta write is what remains, ahead of the first npm release.
 
 ```
 pnpm test             # unit + guard tests. A suite whose prerequisite is absent self-skips loudly

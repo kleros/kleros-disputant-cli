@@ -23,6 +23,12 @@ export default defineConfig({
   },
   // The package advertises `types`, so the library entry needs declarations.
   dts: true,
+  /**
+   * **Shipped deliberately, not by default.** The maps are 1.9 MB of a 3.4 MB
+   * unpacked package — but only 268 kB packed, and this tool spends real ETH on
+   * an action that cannot be undone. A legible stack trace in a stranger's bug
+   * report is worth more than the bytes. Revisit if the packed size grows.
+   */
   sourcemap: true,
   // The bundled deployment modules are CommonJS and `require("viem")`, which esbuild
   // cannot satisfy in ESM output while viem stays external — its fallback throws on

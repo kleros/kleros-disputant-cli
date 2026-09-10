@@ -4,6 +4,9 @@
   "type": "module",
   "description": "Headless CLI for creating Kleros v2 disputes and submitting evidence on Arbitrum One and the Arbitrum Sepolia testnet",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/kleros/kleros-disputant-cli.git"

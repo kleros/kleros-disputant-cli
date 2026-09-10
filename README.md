@@ -66,9 +66,15 @@ the ones that can change the decision to sign.
 Arbitrum One; the second deployment's addresses, versions and wiring are verified live on Arbitrum
 Sepolia. **The full lifecycle has run against the live v2 testnet** under `pnpm test:acceptance` —
 quote, simulate, create, submit evidence, status, each through the built binary in its own process
-— creating core dispute 128 in court 1 and filing evidence against it under local dispute 78. Both
+— which created core dispute 128 in court 1 and filed evidence against it under local dispute 78.
+Those two IDs are the record of one run, not a fixture: the suite creates a new dispute every time
+it runs. Both
 write paths also broadcast on an Arbitrum One fork under `pnpm test:fork`, and `upload-file` is
 measured against the live pinning endpoint.
+
+**The tool has broadcast three times, all on the v2 testnet.** That count is the signing key's nonce
+on Arbitrum Sepolia rather than a tally kept by hand, so it cannot drift from what the chain says.
+
 **No transaction has been broadcast to Arbitrum One.** The testnet rehearsal that exists to precede
 it has now happened; the Beta deployment has not been written to. Treat the first live dispute
 there as the shakedown run, on a cheap court, with a ceiling you can afford to lose.
@@ -236,6 +242,7 @@ you would rather not use it. What was measured against it, and what could not be
 ### 6. Submit evidence
 
 ```bash
+# 215 stands in for a real core dispute ID here and below; it is an example, not a live dispute.
 kleros-disputant status --dispute 215        # is the evidence period still open?
 
 kleros-disputant submit-evidence \
@@ -410,9 +417,12 @@ agent calls.
 
 ## Roadmap
 
-- [x] The acceptance test against the **live** v2 testnet — the full lifecycle in separate
-      processes, green (`docs/spec/05-verification.md` §3)
-- [ ] First broadcast against Arbitrum One, then the first npm release
+What is **done** is described under [Status](#status), not repeated here — a roadmap that carries
+completed items is a changelog with checkboxes, and the same fact asserted in two places goes stale
+in two places.
+
+- [ ] Fund the signing key on Arbitrum One and make the first Beta write, then publish `0.1.0`
+      (`.scratch/release-0.1.0/`)
 - [ ] Upstreaming `src/core/` into `@kleros/agentkit` once its write milestone lands
 
 ## Contributing
