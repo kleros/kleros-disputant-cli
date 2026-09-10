@@ -30,8 +30,12 @@ precedes the acceptance test (step 14), which moves from a pinned fork to the li
 deployment model (`ADR-0015`), the evidence identifier defect, which was a **Beta** defect the
 testnet exposed, not testnet scope (`ADR-0014`), `--chain`, and **ticket 04 — the v2 testnet
 served**, with per-deployment ABIs, the RPC override variables honoured (`ADR-0016`) and a
-differential test pinning that the two deployments answer identically. Tickets 05 (live acceptance)
-and 06 (stranger-facing docs) remain, and 07 precedes the first Arbitrum One broadcast.
+differential test pinning that the two deployments answer identically, and **ticket 06 — the
+stranger-facing sweep**, which also fixed a `pnpm build` broken since 04 (the bundler alias in
+`build/` is reached only by the build, never by the suite; `build-alias.test.ts` now guards it).
+Ticket 05 (live acceptance) waits on a funded testnet key, 07 precedes the first Arbitrum One
+broadcast, and **08 retires or ingests the untracked root handoff that five tracked documents
+cite**.
 Build order: `HANDOFF §10` — where the skill is step 12 and the README step 13, not the reverse.
 
 ```
