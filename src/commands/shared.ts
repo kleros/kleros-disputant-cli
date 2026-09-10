@@ -618,10 +618,15 @@ export async function prepare(options: PrepareOptions): Promise<KlerosResult<Pre
 }
 
 /**
- * The two fields every envelope carries, success or failure — the resolved
- * deployment and the chain ID that was asserted, never the ones requested. The
- * same rule that already governs the effective court, juror count and kit
- * (`spec/02 §1.2`).
+ * The two fields every **success** payload carries — the resolved deployment and
+ * the chain ID that was asserted, never the ones requested. The same rule that
+ * already governs the effective court, juror count and kit (`spec/02 §1.2`).
+ *
+ * **A failure carries neither**, because incur's error envelope is closed
+ * (ADR-0013): there the deployment travels in the message text, which is what
+ * `deploymentSuffix` above exists for. This comment said "every envelope,
+ * success or failure" until the skill was written from it and told agents to
+ * read two fields that are absent on the branch they most need.
  */
 export function deploymentEcho(prepared: Prepared): {
   deployment: DeploymentSlug;

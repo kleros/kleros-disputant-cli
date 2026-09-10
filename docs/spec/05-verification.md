@@ -134,10 +134,10 @@ fixtures come from the v2 testnet **[live]** and are stated in
 
 ### 1.6b Two deployments, and why the suite is not a matrix
 
-**The second deployment appears in exactly four places, and the suite is NOT run twice.** Mechanics
+**The second deployment appears in exactly five places, and the suite is NOT run twice.** Mechanics
 are identical across deployments by design, so a matrix would execute the same lines against
 different constants — a slower suite and a standing tax on every future test, for duplicate
-coverage. The four:
+coverage. The five:
 
 - **The fingerprint** ([§1.6](#16-deployment-fingerprint)), which is pure and offline.
 - **A differential test.** The same inputs against both deployments, asserting the envelopes are
@@ -152,6 +152,13 @@ coverage. The four:
   **MUST** also assert the batch carries **that deployment's** addresses — the half a chain-ID
   assertion cannot check.
 - **The unsupported-slug refusals**, asserting zero network round trips.
+- **The acceptance test** ([§3](#3-acceptance-test)), which is the odd one out and **does not live
+  in §1 at all**: it is not an in-process double but the live testnet, reached through the built
+  binary, and it is the only place this tool signs against that deployment. It is counted here
+  because this is where the deployment's appearances are enumerated, not because it is a unit test.
+  The rule below does not reach it — nothing about its endpoint is ours to set — and it is the one
+  place that buys coverage a deployment-parameterised double cannot: real gas, a real mempool, a
+  real receipt.
 
 The in-process JSON-RPC double **MUST** take a deployment and answer as either one, from the real
 ABIs. The seam stays the endpoint option: nothing injected, no module mocked. Its chain ID
@@ -249,16 +256,32 @@ and three of the five claims in [Appendix A §2](./appendix-a-unresolved.md) wer
 
 ## 3. Acceptance test
 
-`pnpm test:acceptance`, on a pinned fork, needing an archive RPC. Full lifecycle, **in separate
-processes**:
+`pnpm test:acceptance`, against the **live v2 testnet** — `--chain arbitrum-sepolia-testnet`, a
+funded testnet key, no fork and no archive RPC. Full lifecycle, **in separate processes**, through
+the built binary rather than the modules: the envelope, the signing path, the endpoint and the
+receipt exercised together against real infrastructure for the first time. It runs **before the
+first Arbitrum One broadcast**, so that broadcast is a confirmation rather than an experiment.
 
-1. `arbitration-cost` for X1 returns 0.015 ETH.
-2. `create-dispute` without `--broadcast` returns `status: "simulated"` and sends nothing.
-3. `create-dispute --broadcast` mines, and the reported core dispute ID resolves on chain.
+It **MUST** self-skip loudly when the funded key is absent, per the §1 preamble's idiom. A key
+that cannot pay is a skipped suite, never a green one.
+
+**Assertions here MUST be relational, never pinned.** A live chain moves, and the numbers in this
+document are `arbitrum-one`'s: the fee, the court tree and the period lengths are all that
+deployment's ([01](./01-onchain-reference.md) preamble). Asserting `0.015 ETH` would be asserting
+the wrong deployment's constant against a chain that is free to change it.
+
+1. `arbitration-cost` returns a quote for a court that exists **on that deployment**, resolved
+   rather than assumed, and the same call twice returns the same number.
+2. `create-dispute` without `--broadcast` returns `status: "simulated"` and sends nothing —
+   asserted by the sender's balance being unchanged.
+3. `create-dispute --broadcast` mines, the value sent equals the quote **exactly**, and the
+   reported core dispute ID resolves on chain.
 4. `submit-evidence` against that dispute mines, and the emitted `Evidence` log carries the exact
    bytes of E1 **and the local dispute ID read back from `arbitratorDisputeIDToLocalID`** — never
-   the core ID that was passed in. On a pinned Arbitrum One fork the two coincide, so a
-   bytes-only assertion here cannot catch the regression §2.7 names.
+   the core ID that was passed in. **This is the deployment where that assertion has teeth**: a
+   second arbitrable exists on the testnet, so the two identifiers have already separated and a
+   bytes-only assertion would fail to catch the regression §2.7 names. On a pinned Arbitrum One
+   fork they coincide unless the fork is seeded.
 5. `status` reports the dispute in the `evidence` period.
 
 The acceptance test **MUST** assert that no secret reached stdout or stderr, and that nothing was
@@ -267,6 +290,16 @@ written to disk.
 ## 4. Live read-only checks
 
 Re-run these when the deployment might have changed. Every one is read-only and needs no key.
+
+**These are `arbitrum-one`'s addresses**, and they refresh this document set's **[live]** claims,
+which are that deployment's ([01](./01-onchain-reference.md) preamble). The testnet's address set is
+[01 §1.0a](./01-onchain-reference.md); pointing `$RPC` at Arbitrum Sepolia without also replacing
+`$CORE`, `$RES` and `$EV` reads three addresses that hold no Kleros contract, and `cast` will say
+nothing useful about why. **Most of the expected values below do not carry either**: every court ID,
+kit-support answer, fee level, period length and the `courts(35)` bound is that deployment's, so
+only the `version()` reads and the address-consistency checks transfer unchanged. One call has no
+testnet counterpart at all — `arbitrableWhitelist`, whose selector is absent from that ABI
+([01 §1.0b](./01-onchain-reference.md)).
 
 ```bash
 RPC=https://arb1.arbitrum.io/rpc
@@ -338,8 +371,8 @@ The tool is done when all of the following hold:
    over a facts struct.
 2. The deployed ABI is fingerprinted, so an upstream regeneration fails the build rather than a
    transaction.
-3. A full lifecycle runs on a pinned fork, in separate processes, asserting that no secret reached
-   stdout or stderr and that nothing was written to disk.
+3. A full lifecycle runs against the **live v2 testnet**, in separate processes, asserting that no
+   secret reached stdout or stderr and that nothing was written to disk.
 4. The CLI surface is machine-checked against [`CONTEXT.md`](../../CONTEXT.md).
 5. `--broadcast` is opt-in, and the simulate-only result says so **in words**.
 6. **A deliberately wrong court ID is refused on a fork**, with no transaction sent.

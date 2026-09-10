@@ -4,8 +4,8 @@
 
 A party who wants a Kleros v2 dispute decided currently creates it through the Kleros Court web
 client. This specification describes a headless command-line tool that makes the same two writes
-directly against Arbitrum One — creating a dispute and submitting evidence — so that the party can
-file from a server, a script, or an autonomous agent, without a browser.
+directly against the selected deployment — creating a dispute and submitting evidence — so that the
+party can file from a server, a script, or an autonomous agent, without a browser.
 
 **The primary consumer is an LLM agent, not a human.** A human at a terminal is a debug surface
 only. Every consequence of that runs through this specification: JSON on stdout, a stable `code` on
@@ -36,7 +36,12 @@ The following are **out of scope** and MUST NOT be implemented from this specifi
    settled. There is no `--fee-token` flag. [ADR-0008](../adr/0008-arbitration-fees-are-paid-in-eth-only.md)
 6. **Daemon or watcher mode.** Every command is one-shot and exits.
 7. **Voting, staking, drawing, appeal funding, ruling execution.** The disputant is not the juror.
-8. **Networks other than Arbitrum One.**
+8. **Deployments other than the two served.** `arbitrum-one` (v2 Beta) and
+   `arbitrum-sepolia-testnet` are in scope; every other slug MUST be refused, before anything is
+   contacted, as `CHAIN_NOT_SUPPORTED` ([03 §7](./03-cli-surface.md),
+   [ADR-0015](../adr/0015-a-deployment-is-not-a-chain.md)). Serving one more is a decision, not an
+   extension: the v2 devnet's write surface genuinely differs, and this tool has never signed
+   against it.
 
 ## Actors
 
@@ -116,12 +121,16 @@ distinctions are load-bearing enough to restate, because getting them wrong is s
 | **Local dispute ID** | `DisputeResolver`'s own index, mapped back by `arbitratorDisputeIDToLocalID`. Not what any command takes, and never reported — but it is what `submitEvidence` is given |
 | **External dispute ID** | The third field of `DisputeRequest`. What the Kleros Court web client uses to look evidence up, and to submit it. **[fork]** It is the local dispute ID |
 
-On Arbitrum One today all three are numerically equal for every dispute in existence, because
+On `arbitrum-one` today all three are numerically equal for every dispute in existence, because
 `DisputeResolver` created every one of them. **[live]** That coincidence is why the distinction is
-easy to get wrong and impossible to catch by testing against production; a fork seeded with a
+easy to get wrong and impossible to catch by testing against that deployment; a fork seeded with a
 second arbitrable is where it separates. **[fork]** `createDisputeForTemplate` returns the **core**
-dispute ID — this table said the local one until that fork ran. See
-[01 §7](./01-onchain-reference.md).
+dispute ID — this table said the local one until that fork ran. **[live]** **On the v2 testnet they
+have already separated**, without any fork: 50 of its disputes were created by 25 arbitrables other
+than `DisputeResolver`, and the identifiers first diverge at core 58 → local 33. So it is the
+deployment where a wrong identifier is a live condition rather than a seeded one. See
+[01 §7](./01-onchain-reference.md),
+[ADR-0014](../adr/0014-evidence-is-filed-under-the-local-dispute-id.md).
 
 ## Normative summary
 

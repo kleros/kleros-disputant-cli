@@ -5,7 +5,7 @@ import { checkPreflight } from "../preflight.js";
 import { readCreateDisputeFacts, readEvidenceFacts } from "../read-preflight.js";
 import { failure, fakeClient, functionNames, success } from "./fake-client.js";
 
-/** The one deployment served today; ticket 04 makes the double take one. */
+/** The default deployment. The suite is not a matrix — `spec/05 §1.6b`. */
 const contracts = contractsFor(DEFAULT_DEPLOYMENT);
 
 /**

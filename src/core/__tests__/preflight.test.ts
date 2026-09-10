@@ -10,7 +10,7 @@ import type {
 import { checkEvidenceAddressable, checkEvidencePreflight, checkPreflight } from "../preflight.js";
 import { EXTRA_DATA_VECTORS } from "./vectors.js";
 
-/** The one deployment served today; ticket 04 makes the double take one. */
+/** The default deployment. The suite is not a matrix — `spec/05 §1.6b`. */
 const contracts = contractsFor(DEFAULT_DEPLOYMENT);
 
 /**

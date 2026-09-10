@@ -6,6 +6,14 @@ Everything in this document was read from the deployment artifacts shipped in
 `503066782` (**[live]**). Markers are defined in the [README](./README.md). A **[live]** claim that
 cites its own block was measured later than that; §4.2's matrix is the one such claim today.
 
+**Two deployments are served, and this document's default subject is `arbitrum-one`.** Unless a
+claim names a deployment, it was measured there and is a fact about **that address set**, not about
+Kleros v2 — court IDs, court count, period lengths, kit support, fee levels and log counts are all
+per deployment. Where the second one is known to differ, §1.0a (its addresses and versions) and
+§1.0b (the ABI difference) say how; where it has simply not been measured, the claim carries no
+authority there and a fork test or a live read is what changes that. Extending an unlabelled number
+to the testnet is the mistake this paragraph exists to prevent.
+
 ## 1. Deployment, Arbitrum One (chain ID 42161)
 
 **[abi]**, cross-checked **[live]**.
@@ -158,10 +166,13 @@ Known divergences, all **[abi]**:
 
 Consequences, normative:
 
-- The CLI **MUST** bind to `mainnetViem.*Abi`, and **MUST NOT** bind to an ABI compiled from the
-  package's Solidity — which includes the `*__factory.abi` exports, whose shape is `dev`'s. This
-  applies to reading them for evidence as much as to binding: a claim read from a `__factory` is
-  **[inferred]** about a branch this repo does not target, never **[abi]**.
+- The CLI **MUST** bind to the selected deployment's own `*Viem.*Abi` namespace — `mainnetViem`
+  for `arbitrum-one`, `testnetViem` for `arbitrum-sepolia-testnet` — and **MUST NOT** bind to an
+  ABI compiled from the package's Solidity, which includes the `*__factory.abi` exports, whose
+  shape is `dev`'s. The two namespaces are **not** interchangeable (§1.0b), so binding one
+  deployment's ABI to the other's addresses is as wrong as binding `dev`'s. This applies to reading
+  them for evidence as much as to binding: a claim read from a `__factory` is **[inferred]** about a
+  branch this repo does not target, never **[abi]**.
 - The CLI **SHOULD** read `version()` where the contract offers one and **warn**, never fail, on a
   mismatch. `DisputeResolver` offers none, so no version check is possible for it.
 - Revert decoding **MUST** follow §5 exactly, because the divergence lands squarely there.
@@ -203,8 +214,18 @@ balance state override and the correct value, reverts with raw data `0x203b0c18`
 `arbitrableWhitelist(<arbitrary EOA>)` is `false`. **[abi]** The deployed core has no
 `arbitrableWhitelistEnabled()` toggle, so the whitelist is enforced unconditionally.
 
-The disputant path therefore runs **necessarily** through `DisputeResolver`. The CLI **MUST NOT**
-offer a direct-to-core path, and **SHOULD** map `0x203b0c18` to an error that says so.
+**This is a property of v2 Beta, not of Kleros v2.** `arbitrableWhitelist` is one of the nine
+entries §1.0b lists as Beta-only; the testnet core does not carry it, and what an EOA calling
+`createDispute` gets there is **unmeasured**. So on `arbitrum-one` the path through
+`DisputeResolver` is *necessary*, and on the testnet it may merely be *chosen*.
+
+**The rule does not rest on the whitelist, and this section is not its justification.** The CLI
+routes through `DisputeResolver` on every deployment because that uniformity is what buys one write
+path, one payload builder and one set of test vectors — and because `DisputeResolver` is the generic
+permissionless arbitrable, which is what makes the path available at all. The whitelist is how the
+constraint was *discovered*, not what holds it; [`CONTEXT.md`](../../CONTEXT.md)'s **Arbitrable**
+entry is where that reasoning lives. The CLI **MUST NOT** offer a direct-to-core path on either
+deployment, and **SHOULD** map `0x203b0c18` to an error that says so.
 
 ### 3.2 `msg.value` is forwarded wholesale, and the excess is never returned
 
@@ -397,7 +418,7 @@ statements with reason strings, while the failures it *forwards* from `KlerosCor
 | `_numberOfRulingOptions < 2` | `DisputeResolver` | `0x08c379a0…` | `Error(string)`: `"Should be at least 2 ruling options."` |
 | Kit not supported by court | `DisputeResolver` → core | `0xb34eb75d` | `DisputeKitNotSupportedByCourt()`, in `klerosCoreAbi` |
 | `msg.value < arbitrationCost` | `DisputeResolver` → core | `0x38cd83c4` | `ArbitrationFeesNotEnough()`, in `klerosCoreAbi` |
-| EOA calls the core directly | `KlerosCore` | `0x203b0c18` | `ArbitrableNotWhitelisted()`, in `klerosCoreAbi` |
+| EOA calls the core directly | `KlerosCore` | `0x203b0c18` | `ArbitrableNotWhitelisted()`, in `klerosCoreAbi`. **Observed on `arbitrum-one`.** The error is absent from the testnet ABI (§1.0b) and this row has no testnet counterpart: what that call does there is unmeasured, and it is not safe to assume it reverts |
 
 Normative:
 
@@ -533,8 +554,8 @@ The rename is already visible in the deployment artifacts **[abi]**:
 
 | Deployment export | Chain | `submitEvidence` first parameter | Admin function |
 | --- | --- | --- | --- |
-| `mainnetViem` — beta, what this CLI targets | 42161 | `uint256 _externalDisputeID` | `governor()` |
-| `testnetViem` | 421614 | `uint256 _externalDisputeID` | `governor()` |
+| `mainnetViem` — beta, served as `arbitrum-one` | 42161 | `uint256 _externalDisputeID` | `governor()` |
+| `testnetViem` — served as `arbitrum-sepolia-testnet` | 421614 | `uint256 _externalDisputeID` | `governor()` |
 | `devnetViem` | 421614 | `uint256 _arbitratorDisputeID` | `owner()` |
 
 **The rename is invisible to a signature fingerprint** **[computed]**. Both shapes are
@@ -644,7 +665,8 @@ period discipline is this CLI's policy, and it **MUST** warn rather than refuse.
 
 ## 10. Gas and fee environment
 
-Arbitrum One. Carried over from the juror CLI's transaction path, which is the sibling write plane:
+Measured on Arbitrum One, and applied on both deployments. Carried over from the juror CLI's
+transaction path, which is the sibling write plane:
 
 - Gas estimates are multiplied by `150/100` before use.
 - `MAX_FEE_MULTIPLIER = 3n` caps the fee escalation.
@@ -654,3 +676,9 @@ Arbitrum One. Carried over from the juror CLI's transaction path, which is the s
 
 The balance check **MUST** be `balanceWei < estimatedFeeWei + value`, not
 `balanceWei < estimatedFeeWei`. See [04 §2](./04-transaction-relaying.md).
+
+**[inferred]** for `arbitrum-sepolia-testnet`. Every constant here was measured on Arbitrum One, and
+Arbitrum Sepolia runs the same node software — but nothing in this document set has measured it
+there, including the balance precheck inside `eth_call` that [04 §2](./04-transaction-relaying.md)
+uses to justify its **MUST**. The live testnet acceptance test ([05 §3](./05-verification.md)) is
+what would settle it, and it is the reason that test exists.

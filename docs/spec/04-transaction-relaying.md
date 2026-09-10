@@ -174,7 +174,11 @@ Normative:
   — when the answer is "fund the account", exit 1. A consuming agent branches on the code, and
   those two ask for different things. It is a **lower bound**, knowable with no gas estimate, which
   is exactly what lets it run this early; §2's `balance < fee + value` still runs afterwards and is
-  the one that includes gas.
+  the one that includes gas. **[inferred]** on `arbitrum-sepolia-testnet`: the precheck was measured
+  on the Arbitrum One public endpoint and nothing here has measured it on Arbitrum Sepolia. The
+  **MUST** holds regardless — refusing early is right either way — but if that endpoint does *not*
+  precheck, an unfunded account there reaches simulation instead, and this is the paragraph to
+  revisit. [05 §3](./05-verification.md) is what would settle it.
 - The value **MUST** be stated in the envelope for every outcome, including `simulated` — the
   simulate-only envelope is the one an agent reads to decide whether to broadcast.
 

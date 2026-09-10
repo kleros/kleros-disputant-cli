@@ -22,7 +22,7 @@ import { DEFAULT_DEPLOYMENT } from "../core/deployments.js";
 import { decodeRevert } from "../core/reverts.js";
 import { NO_DATA_MAPPINGS } from "../core/template.js";
 
-/** The one deployment served today; ticket 04 makes the double take one. */
+/** The default deployment. The suite is not a matrix — `spec/05 §1.6b`. */
 const contracts = contractsFor(DEFAULT_DEPLOYMENT);
 
 /**

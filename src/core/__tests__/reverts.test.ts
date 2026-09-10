@@ -4,7 +4,7 @@ import { contractsFor } from "../deployment.js";
 import { DEFAULT_DEPLOYMENT } from "../deployments.js";
 import { decodeRevert, ERROR_SELECTORS } from "../reverts.js";
 
-/** The one deployment served today; ticket 04 makes the double take one. */
+/** The default deployment. The suite is not a matrix — `spec/05 §1.6b`. */
 const contracts = contractsFor(DEFAULT_DEPLOYMENT);
 
 /**

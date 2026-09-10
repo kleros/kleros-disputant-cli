@@ -1,7 +1,7 @@
 ---
 name: kleros-disputant
-description: Create Kleros v2 disputes and submit evidence on Arbitrum One through the kleros-disputant CLI. Consult this skill when the case has already been built — the court, the ruling options and the evidence text are decided elsewhere — and what remains is to quote the arbitration cost, create the dispute, pin an attachment, or submit one evidence document against an existing dispute. Read it before running any kleros-disputant command, because it carries the money rules, the period rules and the error-code table that per-command help does not.
-version: 1.0.0
+description: Create Kleros v2 disputes and submit evidence through the kleros-disputant CLI, on Arbitrum One (v2 Beta — the live deployment, real money) or the Arbitrum Sepolia testnet, selected by --chain. Consult this skill when the case has already been built — the court, the ruling options and the evidence text are decided elsewhere — and what remains is to quote the arbitration cost, create the dispute, pin an attachment, or submit one evidence document against an existing dispute. Read it before running any kleros-disputant command, because it carries the deployment rules, the money rules, the period rules and the error-code table that per-command help does not.
+version: 1.1.0
 allowed-tools: "Bash(kleros-disputant:*)"
 metadata:
   openclaw:
@@ -30,6 +30,47 @@ Flags are deliberately not restated here, because a copy of them goes stale. Run
 `kleros-disputant <command> --schema` for JSON Schema. If `kleros-disputant` is not on PATH it is not
 installed, and this skill cannot install it — the repository's README covers that.
 
+## Which deployment
+
+A **deployment** is one address set of the Kleros v2 contracts — its own arbitrator, dispute
+resolver, template registry and dispute kits, with its own ABIs. A chain may host several, so **a
+chain ID does not name a deployment**: at least three Kleros v2 deployments answer 421614. `--chain` (alias
+`-c`) names one, and it is the only thing that can — never an environment variable, never a config
+file. It is declared per command, so it goes on every invocation that needs it.
+
+| `--chain` | What it is | Money |
+| --- | --- | --- |
+| `arbitrum-one` (the default) | **Kleros v2 Beta, chain 42161. The LIVE production deployment** — real disputes, real jurors, real arbitration fees. "Beta" names the release, not a test network | Real ETH, and the arbitration fee is unrecoverable |
+| `arbitrum-sepolia-testnet` | The Kleros v2 testnet, chain 421614. Test data only | Arbitrum Sepolia test ETH |
+
+**Never answer a question about real or current Kleros activity with testnet data, and never file a
+real case against the testnet.** The default is the live one: an invocation with no `--chain` spends
+real money.
+
+**Check which deployment you got, and know where to look.** A *success* payload carries `deployment`
+and `chainId` as fields. A *failure* carries neither — incur's error envelope is closed to `code`,
+`message` and a `cta`, so the deployment is named in the **message text** instead, as
+`Deployment: arbitrum-one (chain 42161)`. Two failures name none at all: `CHAIN_NOT_SUPPORTED`, where
+no deployment resolved, and any `upload-file` error, which touches no chain.
+
+Two slugs are served and no others. `arbitrum-sepolia` on its own is refused, because the bare name
+no longer identifies one of the deployments running there — that message names both replacements, of
+which only `arbitrum-sepolia-testnet` is served here. `arbitrum-sepolia-devnet` is read by
+`@kleros/agentkit` but is not served here, because its write surface genuinely differs, and it has no
+replacement to offer. Both refusals are `CHAIN_NOT_SUPPORTED`, raised before any endpoint is
+contacted, and both end with the served list.
+
+`--rpc-url` picks the endpoint, falling back to `KLEROS_RPC_URL_ARBITRUM_ONE` /
+`KLEROS_RPC_URL_ARBITRUM_SEPOLIA_TESTNET` and then to a rate-limited public default. **The
+environment configures transport, never target**: there is deliberately no variable that selects a
+deployment, so where a transaction goes is visible in the command line and nowhere else. The chain ID
+is then asserted with a live `eth_chainId` call against that deployment's own expected value, before
+any contract call.
+
+`@kleros/agentkit` — the read plane — takes a `--chain` flag with the same name and spells these two
+deployments identically, so a slug carries across the two CLIs without translation. It serves more
+of them than this tool does; that is the only asymmetry.
+
 ## What it will not do
 
 - **No discovery.** It cannot tell you which disputes exist, or which ones concern you. That is
@@ -38,8 +79,8 @@ installed, and this skill cannot install it — the repository's README covers t
   only to refuse a bad write — or, in one case, to decide what is signed, where the alternative is a
   write that cannot be read back.
 - **No case construction.** It drafts no claim, invents no ruling option and predicts no ruling.
-- **Chain 42161 only.** Arbitrum One, asserted with a live `eth_chainId` call before any address is
-  looked up. Every address it holds is meaningless elsewhere, not merely wrong.
+- **No deployment beyond the two above.** A slug it does not serve is refused before anything is
+  contacted, and the addresses of one deployment are meaningless on another, not merely wrong.
 - **The arbitration cost is paid in ETH.** There is no `--fee-token`.
 - **No key from the environment or the command line.** Only `--key-file`, mode 0600. The key never
   appears in any output.
@@ -51,7 +92,7 @@ installed, and this skill cannot install it — the repository's README covers t
 
 | You need | Where it comes from | Used by |
 | --- | --- | --- |
-| A court ID (from 1) and a juror count | Decided upstream. `kleros court list --chain arbitrum-one` in AgentKit enumerates the courts | `arbitration-cost`, `create-dispute` |
+| A court ID (from 1) and a juror count | Decided upstream. `kleros court list --chain <slug>` in AgentKit enumerates the courts, and takes the same slug this tool does. Every deployment has its own court tree, so a court ID does not carry from one to the other — re-check it against the deployment you are filing on | `arbitration-cost`, `create-dispute` |
 | A dispute template JSON file | You author it. The schema is strict: an unknown field is refused by name, not ignored. Answer `0x0` is reserved and never appears in `answers`, and the ruling-option count is derived from that array rather than passed as a flag | `create-dispute` |
 | A cost ceiling in ETH | Your own risk limit, enforced locally the moment the quote arrives — before anything is simulated | `create-dispute` |
 | A signing key file, mode 0600 | Managed outside this tool. Needed **even for a dry run**, because the sender is part of the simulation | `create-dispute`, `submit-evidence` |
@@ -87,6 +128,11 @@ Prefer `@path` for anything long: it keeps the text out of the process table.
 > This matters because the CLI's own `--help` examples render `--broadcast true` and `--publish true`.
 > That form is only correct for *true* — it is what makes the `false` version look plausible. Do not
 > mirror it, in either direction.
+
+**Every example below omits `--chain` and therefore runs against `arbitrum-one`, the live
+deployment.** To rehearse instead, add `--chain arbitrum-sepolia-testnet` to every command in the
+sequence — `upload-file` excepted, which takes no `--chain` because it touches no chain. Do not mix
+the two within one case: a dispute created on one deployment cannot be given evidence on the other.
 
 ```bash
 # 1. What would it cost? Reads only, needs no key, sends nothing.
@@ -155,7 +201,8 @@ simulation.
   one whose dispute a **different arbitrable** created. Either submission would succeed and then be
   unreachable by anything that reads the case. The second is not about who filed the case: every
   dispute on this deployment routes through the same arbitrable, including one filed from the Kleros
-  Court web client, so all of them are reachable today.
+  Court web client, so all of them are reachable today. That was counted on `arbitrum-one`; the
+  testnet has a second arbitrable, so there the refusal is reachable.
 - A receipt is waited for up to two minutes. That is not configurable, and the wait timing out is
   reported as `unknown` rather than as an error.
 
@@ -175,6 +222,7 @@ or its outcome · `4` signing key.
 
 | `code` | What to do |
 | --- | --- |
+| `CHAIN_NOT_SUPPORTED` | `--chain` named a deployment this tool does not serve. Refused at step 1, so nothing was contacted, no key was read and nothing is at risk. The message names the replacement slug where there is one, and the hint lists what is served |
 | `VALIDATION_ERROR` | A required option is absent or the wrong type. Read `fieldErrors[].path` — it names the option. This is the framework refusing before the command runs |
 | `UNKNOWN` | An unrecognised flag, **or** a flag given no value (`Missing value for flag: --court`), **or** any error the framework could not classify. Read the message before assuming a misspelling |
 | `COMMAND_NOT_FOUND` | Not one of the five commands, and not one of incur's `completions` / `mcp` / `skills` groups either. `--llms` lists the five |
@@ -182,15 +230,15 @@ or its outcome · `4` signing key.
 | `COURT_OUT_OF_RANGE` | Court IDs start at 1 — court 0 is the Forking Court and is never a target. If the court could not be confirmed to exist, do not retry with the same ID: a paid dispute would land in the General Court |
 | `COURT_DISABLED` | That court takes no new disputes. Pick another and re-quote |
 | `JURORS_INVALID` | `--jurors` must be at least 1. Zero is replaced by the arbitrator's own default and charged for |
-| `DISPUTE_KIT_OUT_OF_RANGE`, `DISPUTE_KIT_NOT_SUPPORTED` | Every court on Arbitrum One supports kit 1 (Classic), so kit 1 is always a safe request. Support for any other kit is per court and a few courts do have one, so a refusal here is about the pairing, not about the kit. It is re-read with `isSupported` on every invocation and never cached: trust the refusal over any table, this one included |
+| `DISPUTE_KIT_OUT_OF_RANGE`, `DISPUTE_KIT_NOT_SUPPORTED` | Every court supports kit 1 (Classic) on `arbitrum-one`, where that was measured, so kit 1 is the safe request there. Support for any other kit is per court and a few courts do have one, so a refusal here is about the pairing, not about the kit. It is re-read with `isSupported` on every invocation and never cached: trust the refusal over any table, this one included |
 | `TEMPLATE_INVALID` | `--template-file` takes a *path*. The message names the reason: unreadable, not JSON, an unknown field, or an `arbitratorAddress` that is not an address |
 | `RULING_OPTIONS_INVALID` | The template needs at least two answers, with hex ids from `0x1` up, no duplicates once normalised, and never `0x0` — that id is reserved for refusing to arbitrate |
 | `POLICY_URI_INVALID` | `policyURI` must be a multiaddr such as `/ipfs/Qm…`. A plain `https://` URL is refused, because the Kleros Court web client's own schema refuses it |
 | `EVIDENCE_INVALID` | The message names the trap: a bare URI where the document belongs (put it in `--file-uri`), `title` where the field is `name`, a blank `name` or `description`, both of them reading stdin, or an unreadable `@path` |
 | `COST_CEILING_EXCEEDED` | The quote is above `--max-cost-eth`. Raise the ceiling only if that price is intended; the cost is paid on creation and cannot be recovered |
-| `INSUFFICIENT_BALANCE` | The account cannot cover the arbitration cost, or the cost plus estimated gas. Reaches `submit-evidence` too, where the whole shortfall is gas. Fund it with ETH on Arbitrum One — it sends its own transactions and there is no relayer |
+| `INSUFFICIENT_BALANCE` | The account cannot cover the arbitration cost, or the cost plus estimated gas. Reaches `submit-evidence` too, where the whole shortfall is gas. Fund it with ETH on the selected deployment's chain — Arbitrum One, or Arbitrum Sepolia for the testnet. It sends its own transactions and there is no relayer |
 | `DISPUTE_NOT_FOUND` | No dispute uses that ID. `--dispute` takes the core dispute ID, the one Kleros Court shows — not a local or external one |
-| `DISPUTE_NOT_ADDRESSABLE` | The dispute is real, but a different arbitrable created it, and only that contract can say how its evidence is addressed. Retrying will not help; the message names the owner. Not reachable on this deployment today |
+| `DISPUTE_NOT_ADDRESSABLE` | The dispute is real, but a different arbitrable created it, and only that contract can say how its evidence is addressed. Retrying will not help; the message names the owner. Not reachable on `arbitrum-one` today, where one resolver created every dispute that exists; reachable on the testnet |
 | `FILE_UNREADABLE`, `FILE_EMPTY` | `--file` takes one readable, non-empty regular file. The endpoint pins exactly one file per request |
 | `FILE_TOO_LARGE` | The practical ceiling is around 4.6 MB of file. Split or compress it, and submit one document per file |
 
@@ -201,7 +249,7 @@ spent: `upload-file` holds no key.
 
 | `code` | What to do |
 | --- | --- |
-| `WRONG_CHAIN` | The endpoint is not Arbitrum One. Point `--rpc-url` at chain 42161 |
+| `WRONG_CHAIN` | The endpoint answered a chain ID the selected deployment does not expect — usually an `--rpc-url` or `KLEROS_RPC_URL_*` pointing at the wrong chain. The message names both IDs. Nothing was signed |
 | `DEPLOYMENT_INCONSISTENT` | The deployment does not match what this tool was built against — stop rather than work around it. One variant means a transaction *was* mined but the arbitrator emitted no creation event: the cost is spent, so read that transaction before creating anything else |
 | `RPC_ERROR` | A read or an estimate failed. The message ends with `The endpoint said: …`, quoting the node — branch on that to tell a dead endpoint from a rate limit. An account that cannot pay is no longer one of these: it is `INSUFFICIENT_BALANCE` at exit 1. `--rpc-url` takes a comma-separated list for failover |
 | `BROADCAST_FAILED` | The node refused the signed transaction, so nothing was submitted and there is no hash. Read the message before re-running |

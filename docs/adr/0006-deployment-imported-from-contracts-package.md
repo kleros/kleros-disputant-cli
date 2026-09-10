@@ -3,6 +3,15 @@
 `src/core/deployment.ts` imports the five Arbitrum One addresses and every ABI this tool binds to
 from `@kleros/kleros-v2-contracts`, rather than hand-pinning fragments.
 
+> **Amended by [ADR-0015](./0015-a-deployment-is-not-a-chain.md).** This decision assumed one
+> address set, and the sentence above records that assumption rather than today's behaviour:
+> `deployment.ts` now resolves an address set *per deployment*, from `mainnetViem` or `testnetViem`,
+> and the two ABI namespaces are not interchangeable
+> ([spec/01 §1.0b](../spec/01-onchain-reference.md)). Everything below still holds — the reasoning
+> is about *importing* rather than hand-pinning, and a second deployment strengthens it: the
+> addresses that would have been hand-copied have doubled. Left unedited as the record of what was
+> decided when.
+
 `kleros-juror-cli` reached this position by reversal: its ADR-0005 hand-pinned addresses and
 fourteen ABI fragments as the cautious first move, and its ADR-0006 replaced that with the package
 import. **This repo starts at the end state**, so there is no ADR-0005 here and the number stays

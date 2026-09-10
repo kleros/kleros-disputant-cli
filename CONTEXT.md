@@ -1,6 +1,7 @@
 # Kleros disputant CLI
 
-The language of creating a Kleros v2 dispute and submitting evidence on Arbitrum One. This tool
+The language of creating a Kleros v2 dispute and submitting evidence on the Kleros v2 deployments
+this tool serves — v2 Beta on Arbitrum One, and the v2 testnet on Arbitrum Sepolia. This tool
 turns a case that has already been built into a transaction; it does not build the case.
 
 The word *disputant* names this tool's user, not a protocol role. **Kleros v2 has no claimant,
@@ -129,7 +130,8 @@ A chain may host several: chain 421614 carries the v2 testnet, the v2 devnet and
 deployment, so **a chain ID does not name a deployment**. Named by a slug at every machine boundary
 (`arbitrum-one`, `arbitrum-sepolia-testnet`) and by its prose name in documentation ("v2 Beta",
 "v2 testnet"). `--chain` (alias `-c`) keeps the sibling CLI's flag name and selects one of these,
-defaulting to `arbitrum-one`, which is the only deployment served today.
+defaulting to `arbitrum-one`. Two are served; a slug that is not one of them is refused before
+anything is contacted.
 _Avoid_: network, environment, instance; *chain* as a synonym for it (a chain hosts deployments —
 the flag is named for the one and selects the other); *mainnet* (the contracts package's own key for
 Arbitrum One, confined to the deployment module — to an agent that also reads `@kleros/agentkit`,

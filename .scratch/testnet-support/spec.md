@@ -3,8 +3,9 @@
 Status: ready-for-agent
 
 Feature slug: `testnet-support`
-Origin: `/grill-with-docs` session, 2026-09-09. Supersedes the root-level note
-`env-vars-and-testnet-support.md`, which should be deleted once this spec lands.
+Origin: `/grill-with-docs` session, 2026-09-09. Supersedes a root-level note, deleted under
+ticket 06 once this spec landed; its two requirements — the `--chain` slugs and the RPC override
+variables — are stated below and in `ADR-0015` / `ADR-0016`.
 
 ## Problem Statement
 

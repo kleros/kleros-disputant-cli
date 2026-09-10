@@ -42,8 +42,11 @@ default:
      and draws the jurors                 by the subgraph
 ```
 
-`DisputeResolver` is the entry point because an EOA **cannot** call `KlerosCore.createDispute` —
-the deployed core enforces `arbitrableWhitelist` unconditionally.
+`DisputeResolver` is the entry point on both deployments: it is the generic permissionless
+arbitrable, so one write path and one payload builder serve either. On Arbitrum One it is also the
+*only* path — the deployed core enforces `arbitrableWhitelist` unconditionally, so an EOA **cannot**
+call `KlerosCore.createDispute` at all. That whitelist is a v2 Beta property rather than a Kleros v2
+one, which is why it is how the constraint was discovered and not what holds it.
 
 | It does | It does not |
 | --- | --- |
@@ -59,11 +62,14 @@ the ones that can change the decision to sign.
 
 ## Status
 
-**Pre-release.** All five commands are built and tested; the read paths are verified live against
-Arbitrum One, both write paths broadcast on an Arbitrum One fork under `pnpm test:fork`, and
-`upload-file` is measured against the live pinning endpoint.
-**No transaction has ever been broadcast to Arbitrum One itself.** Treat the first live dispute as
-the shakedown run, on a cheap court, with a ceiling you can afford to lose.
+**Pre-release.** All five commands are built and tested. The read paths are verified live against
+Arbitrum One; the second deployment's addresses, versions and wiring are verified live on Arbitrum
+Sepolia, though no command has yet been exercised there end to end — that is the acceptance test
+below. Both write paths broadcast on an Arbitrum One fork under `pnpm test:fork`, and `upload-file`
+is measured against the live pinning endpoint.
+**No transaction has ever been broadcast to either deployment** — not to Arbitrum One, and not yet
+to the testnet that exists to rehearse it. Treat the first live dispute as the shakedown run, on a
+cheap court, with a ceiling you can afford to lose.
 
 | Command | Signing key | On-chain write |
 | --- | :---: | --- |
@@ -167,8 +173,13 @@ The template is what jurors are actually asked. It is a JSON file you author, an
 }
 ```
 
-Three things to know:
+Four things to know:
 
+- **`arbitratorChainID` and `arbitratorAddress` name the deployment you are filing on**, and the two
+  values above are Arbitrum One's. Nothing checks them against `--chain` yet, so a template copied
+  onto the testnet registers the wrong arbitrator — resolve them from
+  [ADR-0006](docs/adr/0006-deployment-imported-from-contracts-package.md)'s source of addresses, not
+  by hand.
 - **Answer `0x0` is reserved** for *Refuse to Arbitrate* and is never in the array. The number of
   ruling options is derived from `answers`, so there is no separate flag that could disagree with it.
 - **The schema is strict.** An unknown field is rejected by name, not silently ignored — a typo'd
@@ -295,7 +306,11 @@ These are enforced in code, not left to the caller:
   anything is contacted. The chain ID is
   asserted with a live `eth_chainId` call against that deployment's own expected value, and **no
   contract call is made before it** — resolving an address is local, using one on an unverified
-  chain is the hazard ([ADR-0015](docs/adr/0015-a-deployment-is-not-a-chain.md)).
+  chain is the hazard ([ADR-0015](docs/adr/0015-a-deployment-is-not-a-chain.md)). The two refusals
+  are distinct on purpose: `CHAIN_NOT_SUPPORTED` is a slug this tool does not serve, refused before
+  anything is contacted, and `WRONG_CHAIN` is an endpoint answering a chain ID the selected
+  deployment does not expect. Collapsing them would tell someone who mistyped a slug to go and check
+  their endpoint.
 - **Fees are paid in ETH.** The ERC-20 path is unresolved, so there is no `--fee-token` flag: the
   broken path cannot be asked for
   ([ADR-0008](docs/adr/0008-arbitration-fees-are-paid-in-eth-only.md)).
@@ -347,7 +362,8 @@ possible ([ADR-0001](docs/adr/0001-standalone-repo-shaped-for-upstreaming.md)).
 ```bash
 pnpm test             # unit + guard tests; a suite whose prerequisite is absent self-skips loudly
 pnpm test:fork        # spawn an Arbitrum One fork on :8546 and run only the fork tests (needs anvil)
-pnpm test:acceptance  # full lifecycle on a pinned fork; needs an archive RPC. Not written yet
+pnpm test:acceptance  # full lifecycle against the live v2 testnet; needs a funded testnet key.
+                      # Not written yet
 pnpm typecheck
 pnpm lint             # biome check .   (`pnpm exec biome check --write .` to fix)
 pnpm build
@@ -389,7 +405,7 @@ agent calls.
 
 ## Roadmap
 
-- [ ] The acceptance test — the full lifecycle on a pinned fork, in separate processes
+- [ ] The acceptance test — the full lifecycle against the live v2 testnet, in separate processes
       (`docs/spec/05-verification.md` §3)
 - [ ] First broadcast against Arbitrum One, then the first npm release
 - [ ] Upstreaming `src/core/` into `@kleros/agentkit` once its write milestone lands

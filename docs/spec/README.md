@@ -1,10 +1,14 @@
 # Kleros disputant CLI: specification
 
 Specifications for a headless TypeScript CLI that creates Kleros v2 disputes and submits evidence
-on **Arbitrum One**, without a browser and without a human at the terminal.
+on the Kleros v2 **deployments** it serves, without a browser and without a human at the terminal.
 
 Status: **draft**, derived from the deployed contracts.
-Target: Kleros v2 beta production deployment on Arbitrum One, `KlerosCore` `0.10.0`.
+Targets, both `KlerosCore` `0.10.0`: the **v2 Beta production deployment** on Arbitrum One
+(`--chain arbitrum-one`, the default), and the **v2 testnet** on Arbitrum Sepolia
+(`--chain arbitrum-sepolia-testnet`). A deployment is one address set, not a chain, and the
+distinction is normative — [ADR-0015](../adr/0015-a-deployment-is-not-a-chain.md),
+[01 §1.0a](./01-onchain-reference.md), [03 §7](./03-cli-surface.md).
 
 This document set is what `HANDOFF_DISPUTANT_CLI.md` §10 step 6 calls for. It supersedes §14 of
 that handoff: where the two disagree, this specification is correct and §14 is the earlier draft.
@@ -15,9 +19,10 @@ claim someone already believed.
 
 | Aspect | Decision |
 | --- | --- |
-| Network | Arbitrum One (chain ID 42161) only |
+| Deployments | Two, selected by `--chain`: `arbitrum-one` (v2 Beta, chain 42161, the default) and `arbitrum-sepolia-testnet` (v2 testnet, chain 421614). Any other slug is refused before anything is contacted |
+| Chain facts | Unless a claim says otherwise, every measurement in this document set was taken on `arbitrum-one`. Where the two deployments differ, [01 §1.0a](./01-onchain-reference.md) and [01 §1.0b](./01-onchain-reference.md) say how |
 | Write surface | `DisputeResolver.createDisputeForTemplate`, `EvidenceModule.submitEvidence`. Off chain, one pinning endpoint |
-| Entry point | `DisputeResolver`. An EOA **cannot** call `KlerosCore.createDispute` |
+| Entry point | `DisputeResolver`, on both deployments — one write path, one payload builder. On `arbitrum-one` an EOA **cannot** call `KlerosCore.createDispute` at all; that is a v2 Beta property, and the uniformity is what the decision rests on ([01 §3.1](./01-onchain-reference.md)) |
 | Dispute kits | Classic (ID 1). Shutter, Gated and GatedShutter are out of scope; the ruler kits are refused by name |
 | Fee token | ETH only. The ERC-20 path is unresolved — [Appendix A §1](./appendix-a-unresolved.md) |
 | Template | Inline in calldata. The `…ForTemplateUri` path is specified but not shipped in v1 |
@@ -62,8 +67,8 @@ orientation, and read
 | Marker | Meaning |
 | --- | --- |
 | **[live]** | Verified by `eth_call` or `eth_getLogs` against Arbitrum One on **2026-09-08**, at block `503066782` (chain time `1788881785`), unless the claim cites its own later block — or its own **deployment** and block, which is how a v2 testnet read is marked ([ADR-0015](../adr/0015-a-deployment-is-not-a-chain.md)). Reproduce with [05 §4](./05-verification.md) |
-| **[fork]** | Verified against the **deployed bytecode** on an Arbitrum One fork, in a state the chain could reach but has not — an overpayment, a second arbitrable. Reproduce with `pnpm test:fork` ([05 §2](./05-verification.md)) |
-| **[abi]** | Read from `@kleros/kleros-v2-contracts@2.0.0-rc.2`, `cjs/deployments`. These ABIs are the deployed ones |
+| **[fork]** | Verified against the **deployed bytecode** on an Arbitrum One fork, in a state the chain could reach but has not — an overpayment, a second arbitrable. The fork harness is `arbitrum-one` only, deliberately ([05 §1.6b](./05-verification.md)). Reproduce with `pnpm test:fork` ([05 §2](./05-verification.md)) |
+| **[abi]** | Read from `@kleros/kleros-v2-contracts@2.0.0-rc.2`, `cjs/deployments`. These ABIs are the deployed ones. **There are two namespaces and they are not interchangeable** — `mainnetViem` for `arbitrum-one`, `testnetViem` for the testnet; a claim that holds in only one says which ([01 §1.0b](./01-onchain-reference.md)) |
 | **[computed]** | Produced locally by `viem` and reproducible offline — selectors, encodings, hashes |
 | **[client]** | Read from the Kleros web client or subgraph source, not from the chain. **Not verified** |
 | **[inferred]** | Reasoned from source that is not the deployed code. **Not verified** |
