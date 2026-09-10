@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { encodeEventTopics, keccak256, toHex } from "viem";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { EXTRA_DATA_VECTORS, TEMPLATE_T1 } from "../../core/__tests__/vectors.js";
+import {
+  EXTRA_DATA_VECTORS,
+  PUBLISHED_EXAMPLE_ARBITRATOR,
+  TEMPLATE_T1,
+} from "../../core/__tests__/vectors.js";
 import { contractsFor } from "../../core/deployment.js";
 import {
   DEFAULT_DEPLOYMENT,
@@ -44,6 +48,7 @@ const X1 = EXTRA_DATA_VECTORS[0];
 let dir: string;
 let keyFile: string;
 let templateFile: string;
+let portableTemplateFile: string;
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "kleros-disputant-"));
@@ -52,6 +57,15 @@ beforeAll(() => {
   chmodSync(keyFile, 0o600);
   templateFile = join(dir, "template.json");
   writeFileSync(templateFile, JSON.stringify(TEMPLATE_T1), "utf8");
+
+  // One file for both deployments. It omits the arbitrator fields, which are
+  // derived from `--chain` (`spec/02 §3.2`); T1 states Arbitrum One's own, so
+  // handing it to the testnet is a refusal — correctly, and that refusal has its
+  // own test. A shared fixture that only one deployment accepts would make these
+  // differential tests assert the refusal instead of the agreement.
+  const { arbitratorChainID, arbitratorAddress, ...portable } = TEMPLATE_T1;
+  portableTemplateFile = join(dir, "portable-template.json");
+  writeFileSync(portableTemplateFile, JSON.stringify(portable), "utf8");
 });
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -510,6 +524,28 @@ describe("create-dispute", () => {
     const result = await runCreateDispute({ ...base(), rpcUrl: node.url, templateFile: bad });
 
     expect(result.success === false && result.code).toBe("TEMPLATE_INVALID");
+    expect(node.methods).toEqual([]);
+  });
+
+  it("refuses a template naming an arbitrator that is not the deployment's", async () => {
+    // Reachable on `arbitrum-one` today, and not a defect the testnet work
+    // introduced — the vector's own docblock says whose address this is.
+    // Refused where it still costs nothing: the fee is paid on creation and the
+    // registration is permanent.
+    const wrong = join(dir, "wrong-arbitrator.json");
+    writeFileSync(
+      wrong,
+      JSON.stringify({
+        ...TEMPLATE_T1,
+        arbitratorAddress: PUBLISHED_EXAMPLE_ARBITRATOR,
+      }),
+      "utf8",
+    );
+    const node = await chain();
+    const result = await runCreateDispute({ ...base(), rpcUrl: node.url, templateFile: wrong });
+
+    expect(result.success === false && result.code).toBe("TEMPLATE_INVALID");
+    // Before the quote and before anything is simulated: not one RPC method.
     expect(node.methods).toEqual([]);
   });
 
@@ -1039,7 +1075,7 @@ describe("the two deployments answer identically", () => {
         court: "1",
         jurors: "3",
         kit: "1",
-        templateFile,
+        templateFile: portableTemplateFile,
         maxCostEth: "1",
         broadcast: false,
       });
@@ -1101,7 +1137,7 @@ describe("the two deployments answer identically", () => {
         court: "1",
         jurors: "3",
         kit: "1",
-        templateFile,
+        templateFile: portableTemplateFile,
         maxCostEth: "0.000000000000000001",
         broadcast: false,
       });
@@ -1118,6 +1154,32 @@ describe("the two deployments answer identically", () => {
     expect(codes[0]).toBe(codes[1]);
     expect(codes[0]).toBe("COST_CEILING_EXCEEDED");
     expect(messages[0]).toBe(messages[1]);
+  });
+
+  /**
+   * The one place the two deployments **must** differ, and the reason the
+   * differential tests above are handed a template that states neither
+   * arbitrator field. Ticket 04 is what turned copying a template between
+   * deployments into a routine action; ticket 07 is what stops the copy being
+   * paid for (`spec/02 §3.2`).
+   */
+  it("refuses a Beta template handed to the testnet", async () => {
+    const node = await on(testnet);
+    const result = await runCreateDispute({
+      chain: testnet.slug,
+      rpcUrl: node.url,
+      keyFile,
+      requireSigner: true,
+      court: "1",
+      jurors: "3",
+      kit: "1",
+      templateFile,
+      maxCostEth: "1",
+      broadcast: false,
+    });
+
+    expect(result.success === false && result.code).toBe("TEMPLATE_INVALID");
+    expect(node.methods).toEqual([]);
   });
 
   /**

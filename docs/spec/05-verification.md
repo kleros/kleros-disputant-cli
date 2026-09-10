@@ -44,7 +44,16 @@ out-of-range court is reported as such rather than as an unsupported kit.
 - Every required template field missing → rejected, one at a time.
 - An unknown key → **rejected**, not stripped.
 - `policyURI` as `https://…` → rejected. As `/ipfs/…` and `ipfs://…/…` → accepted.
-- `arbitratorChainID` as a number rather than a string → rejected.
+- `arbitratorChainID` as a number rather than a string → rejected. That is the *type* failing, and
+  it is a different case from the two below: a numeric one fails `safeParse` and makes the template
+  unrenderable rather than merely wrong.
+- `arbitratorChainID` that is not the selected deployment's chain ID → rejected.
+- `arbitratorAddress` that is not the selected deployment's `KlerosCore` → rejected,
+  checksum-insensitively; a correct address in any casing is accepted and survives verbatim.
+- Both arbitrator fields absent → **accepted**, and derived from the selected deployment. The
+  serialisation is byte-identical to a template that states them correctly.
+- A template stating Arbitrum One's arbitrator, planned against the testnet → rejected, before any
+  RPC method is called.
 - An `answers` entry with `id: "0x0"` → rejected.
 - `answers.length < 2` → rejected.
 - Evidence keyed `title` instead of `name` → rejected.
@@ -393,7 +402,9 @@ The tool is done when all of the following hold:
   Anyone reading the arbitrable guide instead of this specification will produce a 44-byte blob.
 - **The published documentation's evidence field is `title`.** The field is `name`.
 - **The published template examples name an `arbitratorAddress` that is not the deployed
-  `KlerosCore`.** Use the package address.
+  `KlerosCore`.** Use the package address — or state neither arbitrator field and let both be
+  derived. This is the one entry in this list the CLI now **enforces** rather than warns about:
+  a template carrying that address is refused ([02 §3.2](./02-payload-construction.md)).
 - **The documentation says the General Court supports all four dispute kits.** It supports Classic.
 - **The package's `.sol` sources disagree with the deployment** for every contract this tool
   writes to. Bind to the ABIs.

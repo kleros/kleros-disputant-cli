@@ -172,6 +172,11 @@ disputeDetailsSchema.ts`).
 **Optional**: `attachment` (`{ label, uri }`), `frontendUrl`, `metadata`, `category`, `lang`,
 `specification`, `aliases`, `extraEvidences`.
 
+That list is the **canonical** one. This CLI's authoring schema diverges on the two arbitrator
+fields: it accepts a template that omits them and **derives** them from the selected deployment
+(§3.2). What it emits always carries both, so the document it produces still satisfies the canonical
+requirement — the divergence is in what an author must type, never in what jurors are shown.
+
 | Field | Constraint |
 | --- | --- |
 | `answers` | `[{ id, title, description, reserved? }]`, `id` matching `/^0x[0-9a-fA-F]+$/` |
@@ -205,8 +210,9 @@ disputeDetailsSchema.ts`).
 > [`never-expand-an-elided-address.md`](../knowledge/never-expand-an-elided-address.md) forbids.
 > They are here to be **recognised**, never to be called.
 >
-> Nothing enforces the checklist, and this CLI does not check the field against `--chain` yet —
-> that is open work, and until it lands the operator carries it.
+> Nothing upstream enforces that checklist. **This CLI does**: both fields are checked against the
+> selected deployment and a mismatch is refused before anything is contacted (§3.2), so a template
+> copied from these examples is refused here rather than paid for.
 
 
 Two notes on the canonical schema:
@@ -240,9 +246,48 @@ parser. [ADR-0010](../adr/0010-a-strict-authoring-schema-not-the-sdk-parser.md)
   for a canonical constraint. **[client]** The canonical schema types `description`, `question` and
   the answers' `description` as a bare `z.string()` and so accepts `""`, and applies no validation
   at all to `frontendUrl`. Requiring those to be non-empty is this CLI's authoring policy.
+- `arbitratorChainID` and `arbitratorAddress` **MUST** be checked against the selected deployment —
+  the chain ID against the deployment's own, the address against its `KlerosCore`, and the address
+  comparison **MUST** be **checksum-insensitive**, because the canonical schema accepts a
+  non-checksummed address. A mismatch **MUST** be refused with `TEMPLATE_INVALID`, local and
+  offline, before the quote and before anything is simulated. It **MUST NOT** be a warning: the fee
+  is paid on creation and the registration is permanent and unamendable, which is the ground
+  `policyURI` is already refused on (§3.4).
+- Both fields **MAY** be omitted, and **MUST** then be derived from the selected deployment. The
+  precedent is `_numberOfRulingOptions` (§1.1): a value uniquely determined by something the tool
+  already holds is derived, so the two cannot disagree. Requiring an author to type a `KlerosCore`
+  address into a file is the reconstruction
+  [`never-expand-an-elided-address.md`](../knowledge/never-expand-an-elided-address.md) forbids,
+  against a rule that addresses are imported and never hand-copied
+  ([ADR-0006](../adr/0006-deployment-imported-from-contracts-package.md)).
+- A value that is **present and wrong MUST NOT be rewritten**, and the refusal **MUST NOT** print
+  the correct address — the fix is to delete the field, not to retype one out of a terminal. Two
+  independent reasons for not rewriting: substituting a correct value for an operator's explicit
+  statement is what `extraData` pre-flight exists to prevent (§4.4 of [01](./01-onchain-reference.md)),
+  and §3.5 pins keccak over the exact serialised bytes, which a rewrite would move.
 - `@kleros/kleros-sdk` **MUST NOT** become a runtime dependency. Its compiled schema **MAY** be
   imported in a devDependency test, to assert that what the CLI emits is accepted by the canonical
   definition. That test asserts one direction only, and **MUST NOT** be read as asserting the other.
+
+> [!NOTE]
+> **What a mismatch costs is provenance, not misrouting.** Nothing found so far resolves an
+> arbitrator from these fields. **[client]** `@kleros/kleros-sdk@2.4.0`'s `populateTemplate`
+> renders, validates and then touches only `answers`, and receives no deployment identity to compare
+> against; an exhaustive grep of the installed package returns only declarations of the two fields.
+> **[client]** `@kleros/agentkit` carries both through verbatim into `renderedTemplateData` and
+> selects its chain from its own resolved config. **[maintainer]** The Kleros Court web app does not
+> either, asked directly on **2026-09-10** — and that one is a claim about *deployed software*
+> resting on the marker alone, which the legend does not let it be: the web app's source is in
+> neither tree this repo reads, so it is unverified in the way a code-level check would settle.
+> A template naming the wrong arbitrator therefore renders and validates identically to a correct
+> one, and what it buys is a paid, permanent, unamendable record carrying a false statement about
+> which arbitrator the case belongs to.
+>
+> **Nothing above depends on that being right.** The refusal is **not** justified by the size of the
+> harm — if the web app did resolve from these fields, the harm would be misrouting instead and the
+> rule would not change. It is justified by having **no false positives**: the correct pair is
+> uniquely determined by the deployment, so no legitimate template can be blocked by it, and with
+> derivation alongside, the refusal is reachable only by writing a wrong value deliberately.
 
 ### 3.3 Ruling options
 

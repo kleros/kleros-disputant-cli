@@ -34,9 +34,10 @@ differential test pinning that the two deployments answer identically, and **tic
 stranger-facing sweep**, which also fixed a `pnpm build` broken since 04 (the bundler alias in
 `build/` is reached only by the build, never by the suite; `build-alias.test.ts` now guards it).
 **Ticket 08 retired the bootstrapping handoff** the repo was seeded from, rehousing its live content
-and leaving `citations.test.ts` to hold the rule that a citation resolves in a fresh clone. Still
-open: **05**, live acceptance, which waits on a funded testnet key, and **07**, which precedes the
-first Arbitrum One broadcast.
+and leaving `citations.test.ts` to hold the rule that a citation resolves in a fresh clone, and
+**ticket 07 made the template name its own deployment's arbitrator** — both fields derived from
+`--chain` when absent, a mismatch refused offline (`spec/02 §3.2`). Still open: **05**, live
+acceptance, which waits on a funded testnet key.
 
 ```
 pnpm test             # unit + guard tests. A suite whose prerequisite is absent self-skips loudly

@@ -29,6 +29,13 @@ payable, irreversible transaction is built from it. Where the parser shrugs, the
   address from the package. The published documentation examples carry a stale KlerosCore address
   for chain 42161; a lenient parser accepts it.
 
+  **This example is now actually caught, which it was not when this decision was written.** For a
+  long while the schema checked `arbitratorAddress` for being *an* address and never for being
+  *the* arbitrator — so the motivating example passed the very schema it motivated. Both fields are
+  now compared against the selected deployment and a mismatch is refused; both may also be omitted
+  and are then derived, so the address never has to be typed at all
+  ([spec/02 §3.2](../spec/02-payload-construction.md)).
+
 Adopting a lenient parser as the gate would mean the tool's only validation is the one designed not
 to complain.
 
@@ -82,6 +89,12 @@ The field list is transcribed rather than imported, so it must be kept in step b
 cross-check test is what makes that safe. Required: `title`, `description`, `question`, `answers`,
 `policyURI`, `arbitratorChainID`, `arbitratorAddress`, `version`. Optional: `attachment`,
 `frontendUrl`, `category`, `lang`, `specification`, `metadata`, `aliases`, `extraEvidences`.
+
+That is the **canonical** split. This repo's authoring schema is stricter everywhere except one
+place, where it is deliberately looser: `arbitratorChainID` and `arbitratorAddress` are optional to
+*author*, because they are derived from the deployment when absent. What the tool emits still
+carries both, so the emitted document meets the canonical requirement and the cross-check test is
+unaffected.
 
 `_disputeTemplateDataMappings` is always `""`. Mappings are resolved at display time for arbitrables
 with dynamic state, and `graphql` mappings need a Graph API key — neither belongs in a static

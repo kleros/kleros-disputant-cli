@@ -73,6 +73,16 @@ export const TEMPLATE_T1 = {
   version: "1.0",
 } as const;
 
+/**
+ * The `arbitratorAddress` Kleros's published template examples pair with chain
+ * `42161` — **[abi]** `xKlerosLiquidAddress` for chain `100`, the Kleros v1
+ * arbitrator on Gnosis, so the example is wrong in both fields at once
+ * (`spec/02 §3.1`). Here to be **recognised**, never to be called: it is the
+ * value ADR-0010 named as motivating a strict authoring schema, and the one that
+ * schema did not catch until `spec/02 §3.2` landed.
+ */
+export const PUBLISHED_EXAMPLE_ARBITRATOR = "0x9C1dA9A04925bDfDedf0f6421bC7EEa8305F9002";
+
 export const TEMPLATE_T1_BYTES = 555;
 export const TEMPLATE_T1_KECCAK =
   "0x57c84f487148d5272dc1579c209116d8ea7a057a56b19ef139d0df41fbaf916d";

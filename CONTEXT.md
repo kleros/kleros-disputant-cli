@@ -38,7 +38,9 @@ _Avoid_: monitoring, polling, research
 **Dispute template**:
 The JSON document describing what jurors are being asked, in the schema `DisputeDetailsSchema`
 governs: `title`, `description`, `question`, `answers`, `policyURI`, `arbitratorChainID`,
-`arbitratorAddress` and `version` required. On the `createDisputeForTemplate` path it travels
+`arbitratorAddress` and `version` required. The two arbitrator fields are required in the *emitted*
+document but not of an *author*: omitted, they are derived from the selected deployment; stated
+wrongly, the template is refused and no dispute is created. On the `createDisputeForTemplate` path it travels
 **inline in calldata**, not as a URI.
 _Avoid_: MetaEvidence (the v1 term for this; v2 renamed it), meta evidence, dispute metadata
 

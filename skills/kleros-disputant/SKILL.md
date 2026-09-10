@@ -93,7 +93,7 @@ of them than this tool does; that is the only asymmetry.
 | You need | Where it comes from | Used by |
 | --- | --- | --- |
 | A court ID (from 1) and a juror count | Decided upstream. `kleros court list --chain <slug>` in AgentKit enumerates the courts, and takes the same slug this tool does. Every deployment has its own court tree, so a court ID does not carry from one to the other — re-check it against the deployment you are filing on | `arbitration-cost`, `create-dispute` |
-| A dispute template JSON file | You author it. The schema is strict: an unknown field is refused by name, not ignored. Answer `0x0` is reserved and never appears in `answers`, and the ruling-option count is derived from that array rather than passed as a flag | `create-dispute` |
+| A dispute template JSON file | You author it. The schema is strict: an unknown field is refused by name, not ignored. Answer `0x0` is reserved and never appears in `answers`; the ruling-option count is derived from that array rather than passed as a flag; and `arbitratorChainID` / `arbitratorAddress` are derived from `--chain`, so omit them and one file serves both deployments | `create-dispute` |
 | A cost ceiling in ETH | Your own risk limit, enforced locally the moment the quote arrives — before anything is simulated | `create-dispute` |
 | A signing key file, mode 0600 | Managed outside this tool. Needed **even for a dry run**, because the sender is part of the simulation | `create-dispute`, `submit-evidence` |
 | The core dispute ID | The number Kleros Court shows for the case | `status`, `submit-evidence` |
@@ -231,7 +231,7 @@ or its outcome · `4` signing key.
 | `COURT_DISABLED` | That court takes no new disputes. Pick another and re-quote |
 | `JURORS_INVALID` | `--jurors` must be at least 1. Zero is replaced by the arbitrator's own default and charged for |
 | `DISPUTE_KIT_OUT_OF_RANGE`, `DISPUTE_KIT_NOT_SUPPORTED` | Every court supports kit 1 (Classic) on `arbitrum-one`, where that was measured, so kit 1 is the safe request there. Support for any other kit is per court and a few courts do have one, so a refusal here is about the pairing, not about the kit. It is re-read with `isSupported` on every invocation and never cached: trust the refusal over any table, this one included |
-| `TEMPLATE_INVALID` | `--template-file` takes a *path*. The message names the reason: unreadable, not JSON, an unknown field, or an `arbitratorAddress` that is not an address |
+| `TEMPLATE_INVALID` | `--template-file` takes a *path*. The message names the reason: unreadable, not JSON, an unknown field, an `arbitratorAddress` that is not an address, or an arbitrator field that disagrees with `--chain` — for that last one the fix is to **delete** the field, not to retype it |
 | `RULING_OPTIONS_INVALID` | The template needs at least two answers, with hex ids from `0x1` up, no duplicates once normalised, and never `0x0` — that id is reserved for refusing to arbitrate |
 | `POLICY_URI_INVALID` | `policyURI` must be a multiaddr such as `/ipfs/Qm…`. A plain `https://` URL is refused, because the Kleros Court web client's own schema refuses it |
 | `EVIDENCE_INVALID` | The message names the trap: a bare URI where the document belongs (put it in `--file-uri`), `title` where the field is `name`, a blank `name` or `description`, both of them reading stdin, or an unreadable `@path` |

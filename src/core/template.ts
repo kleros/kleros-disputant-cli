@@ -1,5 +1,7 @@
 import { z } from "incur";
 import { isAddress } from "viem";
+import { contractsFor } from "./deployment.js";
+import type { Deployment } from "./deployments.js";
 import { err, type KlerosResult, ok } from "./result.js";
 import { describeZodIssues } from "./schema.js";
 
@@ -107,8 +109,11 @@ const templateSchema = z.strictObject({
   attachment: z.strictObject({ label: nonEmpty, uri: nonEmpty }).optional(),
   frontendUrl: nonEmpty.optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
-  arbitratorChainID: z.string(),
-  arbitratorAddress: z.string(),
+  // Optional here and required in `DisputeTemplate`: absent means "derive it
+  // from `--chain`", so what this module *emits* always names an arbitrator
+  // even though what it *accepts* need not. `resolveArbitrator` is the seam.
+  arbitratorChainID: z.string().optional(),
+  arbitratorAddress: z.string().optional(),
   category: nonEmpty.optional(),
   lang: nonEmpty.optional(),
   specification: nonEmpty.optional(),
@@ -137,12 +142,74 @@ export type TemplatePayload = {
 };
 
 /**
+ * The two fields that name the deployment a dispute is filed on. Absent, they
+ * are derived from it; present and wrong, they are refused and **never
+ * rewritten**. `spec/02 §3.2` is normative and carries the reasoning — including
+ * why a mismatch is refused rather than warned about, and what it actually costs.
+ *
+ * The one thing worth repeating where the mistake would be made: rewriting a
+ * stated value would move the keccak vector `spec/02 §3.5` pins over the exact
+ * serialised bytes, quite apart from being the substitution `extraData`
+ * pre-flight exists to prevent.
+ */
+function resolveArbitrator(
+  stated: { arbitratorChainID?: string | undefined; arbitratorAddress?: string | undefined },
+  deployment: Deployment,
+): KlerosResult<{ arbitratorChainID: string; arbitratorAddress: string }> {
+  const expectedChainID = String(deployment.chainId);
+  const arbitratorChainID = stated.arbitratorChainID ?? expectedChainID;
+  if (arbitratorChainID !== expectedChainID) {
+    return err(
+      "TEMPLATE_INVALID",
+      `arbitratorChainID is ${JSON.stringify(arbitratorChainID)}, but --chain ` +
+        `${deployment.slug} is chain ${expectedChainID}. A template names the deployment its ` +
+        "dispute is created on, and that registration is permanent. Delete the field and it is " +
+        "derived from --chain. Nothing was sent.",
+      { arbitratorChainID },
+    );
+  }
+
+  // Checksum-insensitive on purpose: the canonical schema accepts a
+  // non-checksummed address, and a stated one survives verbatim into the bytes.
+  const expectedAddress = contractsFor(deployment).klerosCore.address;
+  const arbitratorAddress = stated.arbitratorAddress ?? expectedAddress;
+  if (!isAddress(arbitratorAddress, { strict: false })) {
+    return err(
+      "TEMPLATE_INVALID",
+      `arbitratorAddress is not an address: ${JSON.stringify(arbitratorAddress)}. ` +
+        "Nothing was sent.",
+      { arbitratorAddress },
+    );
+  }
+  if (arbitratorAddress.toLowerCase() !== expectedAddress.toLowerCase()) {
+    // The correct address is deliberately **not** in this message. The fix is to
+    // delete the field, not to retype an address out of a terminal — which is
+    // the reconstruction `docs/knowledge/never-expand-an-elided-address.md`
+    // forbids, against a repo rule that addresses are imported (ADR-0006).
+    return err(
+      "TEMPLATE_INVALID",
+      `arbitratorAddress is ${JSON.stringify(arbitratorAddress)}, which is not the arbitrator of ` +
+        `--chain ${deployment.slug} (${deployment.name}). Kleros's published template examples ` +
+        "carry an address that is not the deployed one, so a template copied from them fails " +
+        "here. Delete the field and the right one is derived from --chain; do not retype it. " +
+        "Nothing was sent.",
+      { arbitratorAddress },
+    );
+  }
+
+  return ok({ arbitratorChainID, arbitratorAddress });
+}
+
+/**
  * Validate and normalise an already-parsed document. Answer IDs are normalised
  * to `"0x" + BigInt(id).toString(16)`, so `0x01` and `0x1` are the same option —
  * which is why a collision between them is refused here rather than rendered as
  * two identical choices.
  */
-export function parseTemplate(input: unknown): KlerosResult<DisputeTemplate> {
+export function parseTemplate(
+  input: unknown,
+  deployment: Deployment,
+): KlerosResult<DisputeTemplate> {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     return err(
       "TEMPLATE_INVALID",
@@ -162,14 +229,8 @@ export function parseTemplate(input: unknown): KlerosResult<DisputeTemplate> {
   }
   const t = parsed.data;
 
-  if (!isAddress(t.arbitratorAddress, { strict: false })) {
-    return err(
-      "TEMPLATE_INVALID",
-      `arbitratorAddress is not an address: ${JSON.stringify(t.arbitratorAddress)}. ` +
-        "Nothing was sent.",
-      { arbitratorAddress: t.arbitratorAddress },
-    );
-  }
+  const arbitrator = resolveArbitrator(t, deployment);
+  if (!arbitrator.success) return arbitrator;
 
   // `policyURI` is not checked by the contract: a dispute with a malformed one
   // is created successfully and jurors are still drawn, it merely renders
@@ -244,8 +305,8 @@ export function parseTemplate(input: unknown): KlerosResult<DisputeTemplate> {
     ...(t.attachment !== undefined ? { attachment: t.attachment } : {}),
     ...(t.frontendUrl !== undefined ? { frontendUrl: t.frontendUrl } : {}),
     ...(t.metadata !== undefined ? { metadata: t.metadata } : {}),
-    arbitratorChainID: t.arbitratorChainID,
-    arbitratorAddress: t.arbitratorAddress,
+    arbitratorChainID: arbitrator.data.arbitratorChainID,
+    arbitratorAddress: arbitrator.data.arbitratorAddress,
     ...(t.category !== undefined ? { category: t.category } : {}),
     ...(t.lang !== undefined ? { lang: t.lang } : {}),
     ...(t.specification !== undefined ? { specification: t.specification } : {}),
@@ -290,7 +351,10 @@ export function serialiseTemplate(t: DisputeTemplate): string {
  * command sends out. The JSON parse failure is reported as `TEMPLATE_INVALID`
  * too — from the operator's side it is the same file being wrong.
  */
-export function buildTemplate(source: string): KlerosResult<TemplatePayload> {
+export function buildTemplate(
+  source: string,
+  deployment: Deployment,
+): KlerosResult<TemplatePayload> {
   let document: unknown;
   try {
     document = JSON.parse(source);
@@ -303,7 +367,7 @@ export function buildTemplate(source: string): KlerosResult<TemplatePayload> {
     );
   }
 
-  const parsed = parseTemplate(document);
+  const parsed = parseTemplate(document, deployment);
   if (!parsed.success) return parsed;
 
   const json = serialiseTemplate(parsed.data);

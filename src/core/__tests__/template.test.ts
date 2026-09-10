@@ -1,7 +1,14 @@
 import { keccak256, toHex } from "viem";
 import { describe, expect, it } from "vitest";
+import { contractsFor } from "../deployment.js";
+import { DEPLOYMENTS, type Deployment } from "../deployments.js";
 import { buildTemplate, parseTemplate, serialiseTemplate } from "../template.js";
-import { TEMPLATE_T1, TEMPLATE_T1_BYTES, TEMPLATE_T1_KECCAK } from "./vectors.js";
+import {
+  PUBLISHED_EXAMPLE_ARBITRATOR,
+  TEMPLATE_T1,
+  TEMPLATE_T1_BYTES,
+  TEMPLATE_T1_KECCAK,
+} from "./vectors.js";
 
 /**
  * `spec/05 §1.3` and `§1.4`.
@@ -15,14 +22,21 @@ import { TEMPLATE_T1, TEMPLATE_T1_BYTES, TEMPLATE_T1_KECCAK } from "./vectors.js
 
 const t1 = () => structuredClone(TEMPLATE_T1) as Record<string, unknown>;
 
-const refusalOf = (input: unknown) => {
-  const result = parseTemplate(input);
+/**
+ * T1 states Arbitrum One's own arbitrator, so it is deployment-consistent under
+ * this default and the byte vector is unmoved by ticket 07.
+ */
+const BETA = DEPLOYMENTS["arbitrum-one"];
+const TESTNET = DEPLOYMENTS["arbitrum-sepolia-testnet"];
+
+const refusalOf = (input: unknown, deployment: Deployment = BETA) => {
+  const result = parseTemplate(input, deployment);
   if (result.success) throw new Error("expected a refusal, got a pass");
   return result;
 };
 
-const passOf = (input: unknown) => {
-  const result = parseTemplate(input);
+const passOf = (input: unknown, deployment: Deployment = BETA) => {
+  const result = parseTemplate(input, deployment);
   if (!result.success) throw new Error(`unexpected refusal: ${result.code} — ${result.message}`);
   return result.data;
 };
@@ -35,7 +49,7 @@ describe("T1 — the serialisation vector", () => {
   });
 
   it("derives _numberOfRulingOptions from the answers array", () => {
-    const built = buildTemplate(JSON.stringify(TEMPLATE_T1));
+    const built = buildTemplate(JSON.stringify(TEMPLATE_T1), BETA);
     if (!built.success) throw new Error(`unexpected refusal: ${built.code}`);
     expect(built.data.numberOfRulingOptions).toBe(2n);
     expect(built.data.numberOfRulingOptions).toBe(BigInt(built.data.template.answers.length));
@@ -60,20 +74,14 @@ describe("T1 — the serialisation vector", () => {
 });
 
 describe("the strict authoring schema", () => {
-  it.each([
-    "title",
-    "description",
-    "question",
-    "answers",
-    "policyURI",
-    "arbitratorChainID",
-    "arbitratorAddress",
-    "version",
-  ])("rejects a document missing %s", (field) => {
-    const document = t1();
-    delete document[field];
-    expect(refusalOf(document).code).toBe("TEMPLATE_INVALID");
-  });
+  it.each(["title", "description", "question", "answers", "policyURI", "version"])(
+    "rejects a document missing %s",
+    (field) => {
+      const document = t1();
+      delete document[field];
+      expect(refusalOf(document).code).toBe("TEMPLATE_INVALID");
+    },
+  );
 
   it("rejects an unknown key rather than stripping it", () => {
     // The canonical schema is a plain `z.object`: it strips silently. That is
@@ -99,11 +107,6 @@ describe("the strict authoring schema", () => {
     expect(refusalOf({ ...t1(), arbitratorAddress: "0x991d2d" }).code).toBe("TEMPLATE_INVALID");
   });
 
-  it("accepts an arbitratorAddress that is not checksummed", () => {
-    const lower = TEMPLATE_T1.arbitratorAddress.toLowerCase();
-    expect(passOf({ ...t1(), arbitratorAddress: lower }).arbitratorAddress).toBe(lower);
-  });
-
   it("rejects an empty required string", () => {
     expect(refusalOf({ ...t1(), question: "" }).code).toBe("TEMPLATE_INVALID");
   });
@@ -117,9 +120,98 @@ describe("the strict authoring schema", () => {
   });
 
   it("reports malformed JSON as a template failure", () => {
-    const built = buildTemplate("{not json");
+    const built = buildTemplate("{not json", BETA);
     if (built.success) throw new Error("expected a refusal");
     expect(built.code).toBe("TEMPLATE_INVALID");
+  });
+});
+
+describe("the arbitrator fields", () => {
+  /**
+   * `spec/02 §3.2`, which is normative and says what a mismatch costs and why it
+   * is refused rather than warned about. What these tests pin is narrower: the
+   * check has **no false positives**, so nothing here asserts a refusal for a
+   * template that names its own deployment correctly, in any casing.
+   */
+  const coreOf = (deployment: Deployment) => contractsFor(deployment).klerosCore.address;
+
+  const without = (...fields: string[]) => {
+    const document = t1();
+    for (const field of fields) delete document[field];
+    return document;
+  };
+
+  it("derives both fields from the selected deployment when they are absent", () => {
+    const derived = passOf(without("arbitratorChainID", "arbitratorAddress"));
+    expect(derived.arbitratorChainID).toBe("42161");
+    expect(derived.arbitratorAddress).toBe(coreOf(BETA));
+  });
+
+  it("derives the testnet's own arbitrator, not Beta's", () => {
+    const derived = passOf(without("arbitratorChainID", "arbitratorAddress"), TESTNET);
+    expect(derived.arbitratorChainID).toBe("421614");
+    expect(derived.arbitratorAddress).toBe(coreOf(TESTNET));
+    expect(derived.arbitratorAddress).not.toBe(coreOf(BETA));
+  });
+
+  it("derives each field independently of the other", () => {
+    expect(passOf(without("arbitratorAddress")).arbitratorChainID).toBe("42161");
+    expect(passOf(without("arbitratorChainID")).arbitratorAddress).toBe(
+      TEMPLATE_T1.arbitratorAddress,
+    );
+  });
+
+  it("serialises identically whether the fields are derived or stated", () => {
+    // The derivation must be invisible in the bytes: an author who omits both
+    // fields and one who states them correctly pay for the same template. Field
+    // *position* is `serialiseTemplate`'s own and is pinned by T1's keccak; what
+    // this adds is that the derived **values** are the ones a correct template
+    // would have stated.
+    expect(serialiseTemplate(passOf(without("arbitratorChainID", "arbitratorAddress")))).toBe(
+      serialiseTemplate(passOf(t1())),
+    );
+  });
+
+  it("refuses an arbitratorChainID that is not the deployment's", () => {
+    const refusal = refusalOf({ ...t1(), arbitratorChainID: "1" });
+    expect(refusal.code).toBe("TEMPLATE_INVALID");
+    expect(refusal.message).toContain('"1"');
+    expect(refusal.message).toContain("arbitrum-one");
+  });
+
+  it("refuses the arbitratorAddress the published examples carry", () => {
+    const refusal = refusalOf({
+      ...t1(),
+      arbitratorAddress: PUBLISHED_EXAMPLE_ARBITRATOR,
+    });
+    expect(refusal.code).toBe("TEMPLATE_INVALID");
+    expect(refusal.message).toContain(PUBLISHED_EXAMPLE_ARBITRATOR);
+  });
+
+  it("refuses a template carried across from another deployment", () => {
+    // Ticket 04 is what turned this from a curiosity into a routine action.
+    expect(refusalOf(t1(), TESTNET).code).toBe("TEMPLATE_INVALID");
+  });
+
+  it("never prints the address the caller would then paste back in", () => {
+    // `docs/knowledge/never-expand-an-elided-address.md`: the fix is to delete
+    // the field and let it be derived, never to retype an address from a message.
+    const refusal = refusalOf({
+      ...t1(),
+      arbitratorAddress: PUBLISHED_EXAMPLE_ARBITRATOR,
+    });
+    expect(refusal.message.toLowerCase()).not.toContain(coreOf(BETA).toLowerCase());
+  });
+
+  it("compares checksum-insensitively and leaves a stated value verbatim", () => {
+    // The canonical schema accepts a non-checksummed address, and `spec/02 §3.5`
+    // pins keccak over the exact serialised bytes — so a present value is never
+    // rewritten, not even into its own checksummed form.
+    const lower = TEMPLATE_T1.arbitratorAddress.toLowerCase();
+    expect(passOf({ ...t1(), arbitratorAddress: lower }).arbitratorAddress).toBe(lower);
+    expect(serialiseTemplate(passOf({ ...t1(), arbitratorAddress: lower }))).not.toBe(
+      serialiseTemplate(passOf(t1())),
+    );
   });
 });
 

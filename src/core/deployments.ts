@@ -36,7 +36,7 @@ export type DeploymentSlug = (typeof DEPLOYMENT_SLUGS)[number];
 export type Deployment = {
   /** Canonical at every machine boundary: flag values, envelopes, CTAs, messages. */
   slug: DeploymentSlug;
-  /** The prose name, for the one gloss in the `--chain` description. */
+  /** The prose name: the gloss in the `--chain` description, and in refusals that name a deployment. */
   name: string;
   /**
    * The contracts package's own deployment key. **Mapped here and nowhere

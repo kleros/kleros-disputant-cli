@@ -83,8 +83,11 @@ export async function runCreateDispute(
   }
 
   // `_numberOfRulingOptions` is derived from the template's own `answers` array
-  // and is not an option, so the two cannot disagree (`spec/02 §1.1`).
-  const template = buildTemplate(source);
+  // and is not an option, so the two cannot disagree (`spec/02 §1.1`). The
+  // arbitrator fields are derived from the resolved deployment for the same
+  // reason, and a template that states them wrongly is refused here — offline,
+  // before the quote, before anything is simulated (`spec/02 §3.2`).
+  const template = buildTemplate(source, deployment.data);
   if (!template.success) return template;
 
   const prepared = await prepare({ ...options, requireSigner: true });

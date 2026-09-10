@@ -22,31 +22,31 @@ transaction should be a confirmation and not an experiment. Ticket 04 does not b
 what turns copying a template between deployments into a routine action, so the two are worth
 sequencing together.
 
-**Status:** ready-for-agent
+**Status:** done, 2026-09-10 — `spec/02 §3.1`, `§3.2`, `spec/05 §1.4`, `§6`, `ADR-0010`, `CONTEXT.md`, `README.md`, `SKILL.md`
 
-- [ ] `arbitratorChainID` is compared against the selected deployment's chain ID, and
+- [x] `arbitratorChainID` is compared against the selected deployment's chain ID, and
       `arbitratorAddress` against that deployment's `KlerosCore`, **checksum-insensitively** — the
       canonical schema accepts a non-checksummed address and `template.test.ts` pins that one
       survives verbatim.
-- [ ] A mismatch is a **refusal**, `TEMPLATE_INVALID`, raised before the quote and before anything
+- [x] A mismatch is a **refusal**, `TEMPLATE_INVALID`, raised before the quote and before anything
       is simulated. Not a warning: the fee is paid on creation, the registration is permanent, and
       the same reasoning already governs `policyURI`, which is refused on the stated grounds that
       the failure is invisible until after the money is spent.
-- [ ] Both fields become **optional in the authoring schema and are derived when absent**, from the
+- [x] Both fields become **optional in the authoring schema and are derived when absent**, from the
       resolved deployment. Requiring an author to write `0x991d…` into a file is the trap
       `docs/knowledge/never-expand-an-elided-address.md` names, against a repo rule that addresses
       are imported and never hand-copied (`ADR-0006`). The precedent is `_numberOfRulingOptions`,
       derived from the template's own `answers` so the two cannot disagree (`spec/02 §1.1`).
-- [ ] A value that is **present and wrong is never rewritten**. Two reasons, and both matter:
+- [x] A value that is **present and wrong is never rewritten**. Two reasons, and both matter:
       silently substituting a correct value for an operator's explicit statement is the behaviour
       `extraData` pre-flight exists to prevent, and `spec/02 §3.5` pins keccak vectors over the
       exact serialised bytes, so rewriting a present field would move them.
-- [ ] `spec/02 §3.2` records that both fields are derivable and that a mismatch is refused;
+- [x] `spec/02 §3.2` records that both fields are derivable and that a mismatch is refused;
       `spec/05 §1.4` gains the two missing cases — today it checks that `arbitratorChainID` is a
       *string* and never that either value is *right*; `spec/05 §6`'s "use the package address"
       entry points at the check that now enforces it.
-- [ ] `ADR-0010` gains a line: the strict schema's motivating example is now actually caught.
-- [ ] The refusal message states what the template said and what the deployment is, so a caller can
+- [x] `ADR-0010` gains a line: the strict schema's motivating example is now actually caught.
+- [x] The refusal message states what the template said and what the deployment is, so a caller can
       correct the file without reading the source. It **must not** print an address the caller is
       then expected to copy back in — the fix is to delete the field, not to retype it.
 
@@ -82,3 +82,39 @@ harder**, this is exactly the class of question they are a primary source for.
 a numeric `42161` fails `safeParse` and `populateTemplate` throws, which makes the template
 unrenderable rather than merely wrong. The strict schema already rejects it and
 `template.test.ts:94` pins it. Do not conflate that case with this one.
+
+**2026-09-10** — Done. Both fields are optional in the authoring schema and derived from the
+resolved deployment when absent; a stated value is compared — the chain ID exactly, the address
+checksum-insensitively — and a mismatch is `TEMPLATE_INVALID`, offline, before the quote. The
+command-level test asserts `node.methods` is empty, so the refusal lands before a single RPC method,
+not merely before the write. `resolveArbitrator` in `template.ts` is the seam;
+`parseTemplate`/`buildTemplate` now take the `Deployment`.
+
+**The maintainer answered the one question this ticket said to ask.** The Kleros Court web app does
+**not** resolve the arbitrator from these fields either. So the harm is provenance, exactly as
+specced, and the refusal message says the address is not the deployment's arbitrator rather than
+claiming the dispute would be unreadable. Recorded as **[maintainer]** in `spec/02 §3.2`, alongside
+what was already measured about the SDK and AgentKit.
+
+**Two things this ticket changed that it did not predict.**
+
+**The differential test from ticket 04 broke, and that was the feature working.** "The two
+deployments answer identically" fed T1 — which states Arbitrum One's own arbitrator — to both
+deployments, so the testnet side began refusing. Fixed by giving those two tests a template that
+states *neither* field, which is now the portable authoring style; the refusal that the fixture
+change removes is asserted separately, in "refuses a Beta template handed to the testnet". A shared
+fixture only one deployment accepts would have turned a test of agreement into a test of refusal.
+
+**`README.md`'s example lost both fields rather than gaining a warning.** The old bullet told a
+reader to resolve the address from `ADR-0006` "not by hand" while the example above it printed one
+to copy. Deleting both lines is the honest version of that advice, and it demonstrates the portable
+style in the one document a stranger reads.
+
+**A test that looked right and proved nothing.** "Puts a derived field exactly where a stated one
+would have gone" survived reordering `parseTemplate`'s return literal — because `serialiseTemplate`
+walks its *own* field order, so the parse object's order cannot reach the bytes. Renamed to what it
+actually pins (byte-identity of derived versus stated **values**) after falsifying it against a
+lowercased derivation instead. Field *position* is pinned by T1's keccak, and was already.
+
+**Not done, deliberately:** nothing here checks that the *deployment* named by `--chain` is the one
+the operator meant. That is what `--chain` is for, and no template check can second-guess it.

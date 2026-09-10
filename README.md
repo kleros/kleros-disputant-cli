@@ -167,21 +167,20 @@ The template is what jurors are actually asked. It is a JSON file you author, an
     { "id": "0x2", "title": "No, pay the seller",     "description": "Delivery was made on time." }
   ],
   "policyURI": "/ipfs/QmWQV5ZFFhEJiW8Lm7ay2zLxC2XS4wx1b2W7FfdrLMyQQc",
-  "arbitratorChainID": "42161",
-  "arbitratorAddress": "0x991d2df165670b9cac3B022f4B68D65b664222ea",
   "version": "1.0"
 }
 ```
 
 Four things to know:
 
-- **`arbitratorChainID` and `arbitratorAddress` name the deployment you are filing on**, and the two
-  values above are Arbitrum One's. Nothing checks them against `--chain` yet, so a template copied
-  onto the testnet registers the wrong arbitrator — resolve them from
-  [ADR-0006](docs/adr/0006-deployment-imported-from-contracts-package.md)'s source of addresses, not
-  by hand. **Do not copy them from Kleros's published template examples either**: those name a
-  different arbitrator, and [spec/02 §3.1](docs/spec/02-payload-construction.md) has the address so
-  you can recognise it.
+- **You do not write the arbitrator.** A template names the deployment it is filed on, in
+  `arbitratorChainID` and `arbitratorAddress` — and the example above states neither, because both
+  are derived from `--chain`. The same file then works on either deployment. If you do state them,
+  they are checked: a value that disagrees with `--chain` is refused before anything is contacted,
+  and the fix is to **delete the field**, not to retype an address. That refusal is what stops a
+  template carried across from another deployment, and what stops one copied from Kleros's
+  published examples — those name a different arbitrator, and
+  [spec/02 §3.1](docs/spec/02-payload-construction.md) prints the address so you can recognise it.
 - **Answer `0x0` is reserved** for *Refuse to Arbitrate* and is never in the array. The number of
   ruling options is derived from `answers`, so there is no separate flag that could disagree with it.
 - **The schema is strict.** An unknown field is rejected by name, not silently ignored — a typo'd
