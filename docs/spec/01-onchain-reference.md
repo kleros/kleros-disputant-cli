@@ -93,6 +93,28 @@ are not interchangeable and MUST be bound per deployment.**
 deployments rather than merely intended to be, and it is pinned by test rather than asserted here
 ([05 §1.6](./05-verification.md)).
 
+The namespaces also differ in which **contracts** they carry, not only in one contract's entries.
+**[abi]**, verified 2026-09-10: `arbitrableExampleAddress` is exported by `testnetViem` and
+`devnetViem` and is **absent from `mainnetViem`** — v2 Beta has no `ArbitrableExample` *deployed*.
+It is one more reason a second arbitrable filing on the Beta core is state a fork has to **create**
+rather than find, which is what [05 §2](./05-verification.md) says a fork is for, and how the local
+and core dispute IDs were separated
+([ADR-0014](../adr/0014-evidence-is-filed-under-the-local-dispute-id.md)).
+
+Two things that paragraph does **not** say, both of them mistakes that are easy to make here:
+
+- **It is a claim about deployed addresses, not about the package.** `ArbitrableExample__factory`
+  and `ModeratedEvidenceModule__factory` are both exported from the root barrel, each with a
+  compiled ABI and deploy bytecode. A `__factory` is an artifact compiled from Solidity, and
+  [§2](#2-abi-provenance-the-artifacts-are-deployed-the-solidity-is-not) is the section about not
+  reading a deployment claim off one. The accurate statement is that neither has an address in any
+  of the three viem namespaces.
+- **`mainnetViem` does export an arbitrable other than `DisputeResolver`.** `disputeResolverRuler*`
+  is one, and its ABI carries `rule`, `disputes` and `arbitratorDisputeIDToLocalID` — the very
+  interface that separates a local ID from a core one. It is not a second arbitrable *of the Beta
+  core*: **[live]** its `arbitrator()` is `KlerosCoreRuler`, not `KlerosCore`, which is why §1 lists
+  it under **Refuse by name**.
+
 Sharing one namespace would still be wrong. `arbitrableWhitelist` is exactly the fragment a future
 read would reach for, and the testnet's `klerosCoreAbi` does not declare it **[abi]** — while the
 same calldata returns `false` against v2 Beta **[live]**. A shared namespace would let that call be
@@ -125,7 +147,8 @@ Three mechanical facts, all verified against `2.0.0-rc.2`:
 - **`mainnetViem` is a real export of `cjs/deployments`.** It is a namespace object holding
   `klerosCoreAbi`, `klerosCoreAddress`, `klerosCoreConfig`, `disputeResolverAbi`, … Binding to
   `mainnetViem.*Abi` is correct and needs no local shim to invent the name. *(This corrects
-  handoff §14.1 — see [Appendix A §3](./appendix-a-unresolved.md).)*
+  the bootstrapping handoff's §14.1 — see [Appendix A §3.1](./appendix-a-unresolved.md), which
+  quotes it.)*
 - **`Config.address` and `*Address` are chain-keyed maps, not addresses.** `klerosCoreAddress` is
   `{"42161": "0x991d…"}` and `policyRegistryAddress` has two keys (`100` Gnosis and `42161`).
   Passing either straight to viem fails. Use the package's own `getAddress(config, chainId)`,

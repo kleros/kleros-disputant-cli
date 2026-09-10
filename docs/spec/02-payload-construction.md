@@ -176,9 +176,38 @@ disputeDetailsSchema.ts`).
 | --- | --- |
 | `answers` | `[{ id, title, description, reserved? }]`, `id` matching `/^0x[0-9a-fA-F]+$/` |
 | `policyURI` | **A multiaddr** — `/ipfs/…` or `ipfs://…/…`. A plain `https://` URL fails the refinement |
-| `arbitratorChainID` | The **string** `"42161"`, not a number |
-| `arbitratorAddress` | The `KlerosCore` address from the package, checksummed or not |
+| `arbitratorChainID` | The chain ID **of the selected deployment**, as a **string**, not a number — `"42161"` for `arbitrum-one`, `"421614"` for `arbitrum-sepolia-testnet` |
+| `arbitratorAddress` | The `KlerosCore` address **of the selected deployment**, from the package, checksummed or not. Not the one in the published examples — see the warning below |
 | `version` | A string. Free-form; the canonical schema does not constrain it |
+
+> [!WARNING]
+> **The published documentation's template examples name arbitrators that are not these ones —
+> on both deployments.** **[docs]**, `docs.kleros.io`, read on **2026-09-10**:
+>
+> | Where | The example pairs | The deployment's `KlerosCore` is |
+> | --- | --- | --- |
+> | `/reference/data-formats/dispute-templates` — the Escrow V2 and Reality V2 examples | `"42161"` with `"0x9C1dA9A04925bDfDedf0f6421bC7EEa8305F9002"` | `0x991d2df165670b9cac3B022f4B68D65b664222ea` ([01 §1](./01-onchain-reference.md)) |
+> | the same page, Curate V2 registration | `"421614"` with `"0xD08Ab99480d02bf9C092828043f611BcDFEA917b"` | `0xE8442307d36e9bf6aB27F1A009F95CE8E11C3479` **[abi]**, `testnetViem` |
+>
+> The first is not merely "some other address": **[abi]** it is `xKlerosLiquidAddress` for chain
+> `100` — the Kleros **v1** arbitrator on **Gnosis**. So the example is wrong in both fields at
+> once, naming the wrong protocol generation on the wrong chain. The second matches neither the
+> testnet core above nor the devnet's.
+>
+> And the docs do not merely carry it, they **assert** it. On
+> `/developers/arbitrable-apps/arbitrable-production` **[docs]**, read the same day, a worked
+> "Example Template Validation" annotates that address `// ✓ KlerosCore on Arbitrum One` — on the
+> same page as its own checklist item ``[ ] `arbitratorAddress` matches deployment``. A reader who
+> follows the checklist against the example passes.
+>
+> The addresses are written out in full here on purpose. A reader has to match them against what is
+> in their own template, and eliding them would invite exactly the reconstruction
+> [`never-expand-an-elided-address.md`](../knowledge/never-expand-an-elided-address.md) forbids.
+> They are here to be **recognised**, never to be called.
+>
+> Nothing enforces the checklist, and this CLI does not check the field against `--chain` yet —
+> that is open work, and until it lands the operator carries it.
+
 
 Two notes on the canonical schema:
 
@@ -186,10 +215,10 @@ Two notes on the canonical schema:
   canonical parser *adds* it when it is absent rather than rejecting the document. **[client]**,
   read from `@kleros/kleros-sdk@2.4.0`,
   `lib/src/dataMappings/utils/disputeDetailsSchema.js`, on 2026-09-08. *(An earlier draft of this
-  section claimed the opposite and "corrected" handoff §14.6, which was right — see
-  [Appendix A §3.4](./appendix-a-unresolved.md).)* This CLI does not author it, so its strict
-  schema refuses a template carrying one; that is an authoring choice, not a claim about the
-  canonical schema.
+  section claimed the opposite and "corrected" the bootstrapping handoff's §14.6, which was
+  right — see [Appendix A §3.4](./appendix-a-unresolved.md), which restates it.)* This CLI does
+  not author it, so its strict schema refuses a template carrying one; that is an authoring
+  choice, not a claim about the canonical schema.
   **The field is version-dependent.** **[client]** A `v2.3.1`-era reference enumerates the output
   fields as "8 required / 7 optional" with no `extraEvidences` row, so the field appears to have
   been **added between 2.3.1 and 2.4.0**. A claim about "the canonical schema" is therefore only

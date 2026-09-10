@@ -1,8 +1,9 @@
 # Appendix A. Unresolved, unverified, and corrected
 
 Three registers. §1 and §2 are claims this specification depends on but has **not** verified — do
-not build on them without a fork test. §3 lists claims in `HANDOFF_DISPUTANT_CLI.md` §14 that this
-specification **corrects**, because each one is something a reader may already believe.
+not build on them without a fork test. §3 lists claims in the **bootstrapping handoff** that this
+specification **corrects**, because each one is something a reader may already believe. §3 says what
+that document was and why it is not in the tree.
 
 ## 1. Blocked: do not build these
 
@@ -77,9 +78,11 @@ The reversal the explanation predicted is real but has not shipped: it lives in 
 upstream `dev`, not in the deployed contract, and [01 §7.1](./01-onchain-reference.md) now tracks it
 as pending — along with why a selector fingerprint cannot see the parameter rename.
 
-This closes `HANDOFF §14.8`'s instruction to "get the verified source from Arbiscan before depending
-on the distinction". The distinction is now depended on, and what settled it was a deployment where
-the numbers differ, not a source read.
+This closes the bootstrapping handoff's instruction to "get the verified source from Arbiscan before
+depending on the distinction" — one of the three it listed as blocking (§3 has the document). The
+distinction is now depended on, and what settled it was a deployment where the numbers differ, not a
+source read. Of the other two, the ERC-20 fee path is §1.1 above and the `createDisputeForTemplateUri`
+path is §1.2; both are still open.
 
 ## 2.1 What remains unverified about the pinning endpoint
 
@@ -97,10 +100,21 @@ from a live request on 2026-09-09. What cannot be settled by measurement is list
 None of these blocks the implementation. S1 and S4 are the operator's to accept, and the ADR says
 so; S2 is neutralised by a check; S3 changes nothing.
 
-## 3. Corrections to `HANDOFF_DISPUTANT_CLI.md` §14
+## 3. Corrections to the bootstrapping handoff
 
-Each row is a claim in the handoff that this specification supersedes. They are listed because
-`CLAUDE.md` and `CONTEXT.md` were written from §14, and two of them are load-bearing there.
+**What that document was.** `HANDOFF_DISPUTANT_CLI.md`: a single root-level note that a
+bootstrapping session wrote before this repository existed, describing what to build and what the
+author had found on chain. It was **never committed** — a fresh clone never had it — and it was
+retired deliberately once its content had been verified and rehoused. Its §14 was the on-chain write
+surface and its §15 the vocabulary; `docs/spec/` supersedes the first and `CONTEXT.md` the second.
+
+**Why this section outlives it.** `CLAUDE.md` and `CONTEXT.md` were written *from* that document, so
+several of its claims were believed here before they were measured, and two are load-bearing. A
+correction with no visible subject is not a correction, so **every row below carries the claim it
+overturns**: §3.1, §3.2, §3.3 and §3.8 quote it verbatim; §3.4, §3.7 and §3.9 restate it in full;
+§3.5 corrects an *omission* and says what was absent; and §3.6 corrects nothing — it records a fact
+the handoff never had. The section therefore stands on its own, and the `§14.x` and `§15` labels are
+internal references to a document that no longer needs to be read.
 
 ### 3.1 `mainnetViem` exists in the package
 
@@ -201,6 +215,42 @@ which direction the chain protects you in, and which one it does not.
 contracts' own `contracts/specifications/evidence-format.md` specifies only `name`, `description`
 and `fileURI`; `fileTypeExtension` appears in the subgraph handler and the subgraph schema. It is
 safe to emit and is read by the indexer — it simply is not in the format specification.
+
+### 3.8 The first argument to `submitEvidence` is the **local** dispute ID
+
+§14.5's headline claim is "**The first argument is the KlerosCore dispute ID.** Verified twice: the
+Court UI passes `BigInt(disputeId)`, and the subgraph does `Dispute.load(coreDisputeID.toString())`
+… Pass an arbitrable-local ID and the evidence is on chain but invisible in Court and the subgraph."
+
+**Wrong, and this is the one §14 claim the CLI acted on wrongly.** The argument is the **local**
+dispute ID — the arbitrable's own index, which `arbitratorDisputeIDToLocalID` maps the core ID onto.
+The two coincide on Arbitrum One only because `DisputeResolver` created every dispute there, which
+is exactly why a live read could not tell them apart; **[fork]**, on a fork seeded with a second
+arbitrable, the local ID is `220` where the core ID is `224`. See
+[ADR-0014](../adr/0014-evidence-is-filed-under-the-local-dispute-id.md) and
+[02 §4.2](./02-payload-construction.md).
+
+§3.3 above corrects the *subgraph* half of the same bullet; this row corrects the headline, which
+stood uncorrected by name until the handoff was retired. The advice it ends on — "pass an
+arbitrable-local ID and the evidence is … invisible" — inverts: passing the **core** ID is what
+misfiles the evidence, whenever the two differ.
+
+### 3.9 The vocabulary section, §15
+
+§15 was the raw material for `CONTEXT.md` and for `vocabulary.test.ts`'s `FORBIDDEN` list, and
+`CONTEXT.md` supersedes it. Three of its rulings did not survive intact — one is wrong, one is
+banned where §15 endorsed it, one was narrowed — and they are recorded here for the same reason as
+the rest: each was believed before it was measured.
+
+| §15 said | Corrected to |
+| --- | --- |
+| Avoid *evidence group ID*, because it "**Does not exist in v2's EvidenceModule** — the first arg is the dispute ID" | The term is still avoided; the **second half is wrong**. The first argument is the **local** dispute ID, not the dispute ID (§3.8) — the mistake `ADR-0014` exists to prevent. The first half survives on the name: no ABI in any of the three namespaces uses *evidence group*, and `CONTEXT.md` treats it as the v1 name for an argument that is still there, called `_externalDisputeID` on both served deployments ([01 §7.1](./01-onchain-reference.md)) |
+| Use *dispute ID* | `CONTEXT.md` **bans it unqualified** — the ambiguity between the core, local and external IDs is the trap, and unqualified is how you fall into it |
+| Use *ruling option* or *answer*, in one group | Narrowed, not reversed. `CONTEXT.md` keeps *ruling option* and records *choice* as the juror-side synonym; it does not adopt *answer* for the concept. *answers* remains the **template field's** name, which is why the word is not in `FORBIDDEN` |
+
+One §15 rule was **not** in `CONTEXT.md` and has been ingested rather than dropped: avoid *owner* of
+these contracts, because the deployed ones expose `governor()`. It is not in `FORBIDDEN`, and
+deliberately — *owner* is correct for a key.
 
 ## 4. Open design questions
 

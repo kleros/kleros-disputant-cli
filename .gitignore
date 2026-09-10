@@ -10,3 +10,9 @@ dist
 
 # `npm pack` output.
 *.tgz
+
+# The bootstrapping handoff: an untracked root note this repo was seeded from, retired by
+# `.scratch/testnet-support/issues/08-the-bootstrapping-handoff-is-ingested-or-retired.md`. Its
+# live content is under `docs/`, and `docs/spec/appendix-a-unresolved.md` §3 says what it was.
+# Ignored so that a `git add -A` cannot commit a superseded document by accident.
+/HANDOFF_DISPUTANT_CLI.md

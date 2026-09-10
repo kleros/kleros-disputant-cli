@@ -13,30 +13,30 @@ surface only, so the CLI must be self-documenting.
 
 **`docs/spec/` is normative, and this repo had no inherited specification** — one was written here
 from the deployed contracts and pinned with vectors verified live on 2026-09-08. Read it before
-writing domain logic and cite it by section (`spec/01 §4.4`). It **supersedes
-`HANDOFF_DISPUTANT_CLI.md` §14**, and `spec/appendix-a §3` lists every disagreement, because each
-one is a claim someone already believed — including two of the spec's own, which the fork tests
-overturned (`spec/appendix-a §3.5`).
+writing domain logic and cite it by section (`spec/01 §4.4`). It **supersedes the bootstrapping
+handoff** the repo was seeded from, and `spec/appendix-a §3` quotes every superseded claim before
+correcting it, because each one is a claim someone already believed — including two of the spec's
+own, which the fork tests overturned (`spec/appendix-a §3.5`).
 
 Status: bootstrapping. `src/core/`, `src/commands/` and the fork tests are complete — the pure
 functional core, the deployment pinned by a fingerprint test, the read layer, the transaction path,
 the five commands on incur, and `spec/05 §2`'s seven fork tests, which **broadcast on a fork** and
-settled three of Appendix A's five unverified claims. The skill (step 12) and `README.md` (step 13)
-are written; `upload-file` was added out of build order on maintainer instruction and **has run
-against the live endpoint**. Nothing published to npm, and **no transaction broadcast on Arbitrum
-One**. Next is **v2 testnet support**, specced and ticketed in `.scratch/testnet-support/`: it
-precedes the acceptance test (step 14), which moves from a pinned fork to the live testnet and whose
-`pnpm test:acceptance` still points at a file that does not exist. Tickets 01, 02 and 03 are done — the
+settled three of Appendix A's five unverified claims. The skill and `README.md` are written;
+`upload-file` was added out of order on maintainer instruction and **has run against the live
+endpoint**. Nothing published to npm, and **no transaction broadcast on Arbitrum One**. Next is
+**v2 testnet support**, specced and ticketed in `.scratch/testnet-support/`: it precedes the
+acceptance test, which moves from a pinned fork to the live testnet and whose `pnpm test:acceptance`
+still points at a file that does not exist. Tickets 01, 02 and 03 are done — the
 deployment model (`ADR-0015`), the evidence identifier defect, which was a **Beta** defect the
 testnet exposed, not testnet scope (`ADR-0014`), `--chain`, and **ticket 04 — the v2 testnet
 served**, with per-deployment ABIs, the RPC override variables honoured (`ADR-0016`) and a
 differential test pinning that the two deployments answer identically, and **ticket 06 — the
 stranger-facing sweep**, which also fixed a `pnpm build` broken since 04 (the bundler alias in
 `build/` is reached only by the build, never by the suite; `build-alias.test.ts` now guards it).
-Ticket 05 (live acceptance) waits on a funded testnet key, 07 precedes the first Arbitrum One
-broadcast, and **08 retires or ingests the untracked root handoff that five tracked documents
-cite**.
-Build order: `HANDOFF §10` — where the skill is step 12 and the README step 13, not the reverse.
+**Ticket 08 retired the bootstrapping handoff** the repo was seeded from, rehousing its live content
+and leaving `citations.test.ts` to hold the rule that a citation resolves in a fresh clone. Still
+open: **05**, live acceptance, which waits on a funded testnet key, and **07**, which precedes the
+first Arbitrum One broadcast.
 
 ```
 pnpm test             # unit + guard tests. A suite whose prerequisite is absent self-skips loudly
@@ -199,9 +199,12 @@ says the contracts package declares no deep subpaths when `./cjs/deployments` is
 `exports` map exposes only `.`. It performs **no on-chain writes**, but it writes locally and POSTs
 to GitHub, so "no on-chain writes" is accurate where "read-only" is not.
 
-`HANDOFF_DISPUTANT_CLI.md` at the repo root is the bootstrapping plan: §10 the build order, §15 the
-vocabulary. **§14 is superseded by `docs/spec/`** — read it only to understand where a stale belief
-came from.
+There was a third source, the untracked root note this repo was bootstrapped from. **It is
+retired** — its build order is spent, `docs/spec/` superseded its chain facts and `CONTEXT.md` its
+vocabulary, and `spec/appendix-a §3` names it, says what it was and quotes every claim it got wrong.
+`.gitignore` carries its filename so it cannot be committed by accident. Do not reintroduce it and
+do not cite it: `citations.test.ts` fails a reader-facing document that points at a file a fresh
+clone does not have.
 
 ## Agent skills
 

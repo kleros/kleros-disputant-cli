@@ -179,7 +179,9 @@ Four things to know:
   values above are Arbitrum One's. Nothing checks them against `--chain` yet, so a template copied
   onto the testnet registers the wrong arbitrator — resolve them from
   [ADR-0006](docs/adr/0006-deployment-imported-from-contracts-package.md)'s source of addresses, not
-  by hand.
+  by hand. **Do not copy them from Kleros's published template examples either**: those name a
+  different arbitrator, and [spec/02 §3.1](docs/spec/02-payload-construction.md) has the address so
+  you can recognise it.
 - **Answer `0x0` is reserved** for *Refuse to Arbitrate* and is never in the array. The number of
   ruling options is derived from `answers`, so there is no separate flag that could disagree with it.
 - **The schema is strict.** An unknown field is rejected by name, not silently ignored — a typo'd

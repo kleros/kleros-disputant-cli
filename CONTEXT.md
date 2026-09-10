@@ -153,7 +153,10 @@ EOA cannot call `KlerosCore.createDispute` directly, because the deployed core e
 where the function does not exist. `spec/01 §3.1`, `ADR-0015`
 The v2 `DisputeResolver` *contract* is unrelated to the v1 "Dispute Resolver" dapp and to
 `ArbitrableProxy`; always qualify which one you mean.
-_Avoid_: ArbitrableProxy, the Dispute Resolver dapp, dapp, integration
+_Avoid_: ArbitrableProxy, the Dispute Resolver dapp, dapp, integration, owner (of these
+contracts — on **both served deployments** they expose `governor()` and carry no `owner()`
+selector; `ADR-0006`, `spec/01 §2`. The devnet's are the other way round, which is one more
+reason it is not served — `spec/01 §7.1`. The word is still correct for a key)
 
 **Core dispute ID**:
 The global dispute identifier in `KlerosCore.disputes[]`, reported by the `DisputeCreation` event.

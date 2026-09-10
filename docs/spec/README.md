@@ -10,10 +10,12 @@ Targets, both `KlerosCore` `0.10.0`: the **v2 Beta production deployment** on Ar
 distinction is normative — [ADR-0015](../adr/0015-a-deployment-is-not-a-chain.md),
 [01 §1.0a](./01-onchain-reference.md), [03 §7](./03-cli-surface.md).
 
-This document set is what `HANDOFF_DISPUTANT_CLI.md` §10 step 6 calls for. It supersedes §14 of
-that handoff: where the two disagree, this specification is correct and §14 is the earlier draft.
-The disagreements are listed in [Appendix A](./appendix-a-unresolved.md) §3, because each one is a
-claim someone already believed.
+This repository inherited no specification, so this set was written here from the deployed
+contracts. It supersedes the **bootstrapping handoff** — an untracked root note, never committed and
+since retired, whose §14 was the earlier draft of the write surface. Where the two disagreed this
+specification is correct, and the disagreements are listed in
+[Appendix A](./appendix-a-unresolved.md) §3, which quotes each superseded claim so the correction
+stands without the document. Each one is a claim someone already believed.
 
 ## Scope at a glance
 
@@ -43,7 +45,7 @@ claim someone already believed.
 | 04 | [Transaction relaying](./04-transaction-relaying.md) | Simulate, estimate, send, track. Where `value` threads through |
 | 05 | [Verification](./05-verification.md) | Test plan and acceptance criteria |
 | 06 | [Attachment upload](./06-attachment-upload.md) | The one off-chain plane: `upload-file`, the endpoint, and what was measured against it |
-| A | [Appendix A: unresolved](./appendix-a-unresolved.md) | Every claim not verified, and every §14 claim this document corrects |
+| A | [Appendix A: unresolved](./appendix-a-unresolved.md) | Every claim not verified, and every claim of the retired bootstrapping handoff that this document corrects |
 
 ## Reading order
 
@@ -74,9 +76,12 @@ orientation, and read
 | **[inferred]** | Reasoned from source that is not the deployed code. **Not verified** |
 | **[maintainer]** | Stated by the Kleros v2 maintainers. Authoritative for intent and roadmap; **not** a substitute for a code-level check of what is deployed |
 | **[service]** | Measured against a live HTTP **service** on **2026-09-09**, not a contract. Weaker than every marker above it: there is no deployment to fingerprint and no bytecode to read, so it can change with no signal this repo can detect. Re-measure with [06 §5](./06-attachment-upload.md) |
+| **[docs]** | Read from Kleros's **published documentation** at `docs.kleros.io`, with the date. **Off the scale above rather than at the bottom of it**: it is prose *about* the system, so it is authoritative for what the documentation says and for nothing else, and this specification cites it mainly where it is **wrong**. A chain fact sourced from it is **[inferred]**, not this |
 
 **[client]** and **[inferred]** claims MUST NOT be depended on without a fork test. They are
-collected in [Appendix A](./appendix-a-unresolved.md). A claim that a fork test has since settled is
+collected in [Appendix A](./appendix-a-unresolved.md). **[docs]** carries no such rule because it
+never carries a chain claim — a documented behaviour this specification wanted to rely on would be
+re-marked **[inferred]** and join them there. A claim that a fork test has since settled is
 re-marked **[fork]** and moves out of that appendix; **[fork]** is stronger than **[live]** for
 anything production has never done, because production has no sample of it to read.
 
