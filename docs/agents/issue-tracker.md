@@ -28,3 +28,18 @@ Used by `/wayfinder`. The **map** is a file with one **child** file per ticket.
 - **Frontier**: scan `.scratch/<effort>/issues/` for files that are open, unblocked, and unclaimed; first by number wins.
 - **Claim**: set `Status: claimed` and save before any work.
 - **Resolve**: append the answer under an `## Answer` heading, set `Status: resolved`, then append a context pointer (gist + link) to the map's Decisions-so-far in `map.md`.
+
+## Security-sensitive work
+
+This repository is public, so every issue, comment and label is public the moment it is written.
+A finding a third party could exploit — a path to a mispaid or misrouted dispute, a key exposure,
+an injection through foreign text — is **never** filed as an issue. Draft a repository security
+advisory instead (`gh api --method POST repos/kleros/kleros-disputant-cli/security-advisories`, or
+the Security tab), and say in your report that you did. If one is already public, comment nothing
+further on it and tell the maintainer.
+
+## History in `.scratch/`
+
+`.scratch/` holds the features closed before this repo moved to GitHub Issues. ADRs and
+`docs/knowledge/` cite those files by path, so they stay where they are: never migrate, move or
+delete them, and file nothing new there.

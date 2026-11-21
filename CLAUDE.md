@@ -214,8 +214,12 @@ clone does not have.
 
 ## Agent skills
 
-- **Issue tracker** — issues live as markdown files under `.scratch/<feature-slug>/`. See
+- **Issue tracker** — GitHub Issues on `kleros/kleros-disputant-cli`, which is **public**: an
+  exploitable finding goes in a draft security advisory, never an issue. See
   `docs/agents/issue-tracker.md`.
+- **`.scratch/` is history, not a tracker** — the closed features filed before GitHub Issues. ADRs
+  and `docs/knowledge/` cite them by path, so never move, migrate or delete them, and file nothing
+  new there.
 - **Triage labels** — the five canonical roles, each label string equal to its name. See
   `docs/agents/triage-labels.md`.
 

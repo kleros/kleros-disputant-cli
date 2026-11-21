@@ -1,6 +1,6 @@
 # Spec: v2 testnet support on Arbitrum Sepolia
 
-Status: ready-for-agent
+Status: done, 2026-09-10 — all eight tickets closed
 
 Feature slug: `testnet-support`
 Origin: `/grill-with-docs` session, 2026-09-09. Supersedes a root-level note, deleted under
