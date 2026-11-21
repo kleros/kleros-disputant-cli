@@ -222,6 +222,8 @@ clone does not have.
   new there.
 - **Triage labels** — the five canonical roles, each label string equal to its name. See
   `docs/agents/triage-labels.md`.
+- **Domain docs** — single-context: `CONTEXT.md` is the glossary (skills that say `GLOSSARY.md`
+  mean it) and `docs/adr/` the decisions. See `docs/agents/domain.md`.
 
 ## Process
 

@@ -116,10 +116,20 @@ const NOT_A_CITATION: ReadonlyMap<string, string> = new Map([
       "has none. Scoped: anywhere else the name would be a real dangling pointer.",
   ],
   [
-    "docs/agents/issue-tracker.md::map.md",
-    "issue-tracker.md names `.scratch/<effort>/map.md` as the wayfinder convention's map " +
-      "file — a path template for a file a future effort creates, not a pointer at one " +
-      "that exists. Scoped for the same reason as the entry above.",
+    "docs/agents/domain.md::GLOSSARY.md",
+    "domain.md names it to say it is NOT this repo's glossary: the engineering skills " +
+      "call the glossary GLOSSARY.md, this repo calls it CONTEXT.md, and the line forbids " +
+      "creating one. A prohibition, not a pointer. Scoped: elsewhere it would dangle.",
+  ],
+  [
+    "docs/agents/domain.md::GLOSSARY-MAP.md",
+    "The same prohibition, for the multi-context index the skills would create beside " +
+      "it. This repo is single-context and must never have one. Scoped like the above.",
+  ],
+  [
+    "CLAUDE.md::GLOSSARY.md",
+    "CLAUDE.md's Domain docs line maps the skills' name for the glossary onto CONTEXT.md, " +
+      "so a reader of a skill that says GLOSSARY.md knows which file is meant. Scoped.",
   ],
 ]);
 

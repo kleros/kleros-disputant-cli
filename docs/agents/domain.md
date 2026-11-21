@@ -1,5 +1,7 @@
 # Domain Docs
 
+**This repo's glossary is `CONTEXT.md`.** Where a skill says `GLOSSARY.md` it means `CONTEXT.md`: read and edit that file, and never create a `GLOSSARY.md` or `GLOSSARY-MAP.md`.
+
 How the engineering skills should consume this repo's domain documentation when exploring the codebase.
 
 ## Before exploring, read these
