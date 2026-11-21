@@ -8,7 +8,7 @@
 
 <p align="center">
   <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg">
-  <img alt="Node >=22" src="https://img.shields.io/badge/node-%3E%3D22-3c873a.svg">
+  <img alt="Node 22 or later" src="https://img.shields.io/badge/node-%3E%3D22-3c873a.svg">
   <img alt="Chains: Arbitrum One and Arbitrum Sepolia" src="https://img.shields.io/badge/chains-Arbitrum%20One%20%7C%20Arbitrum%20Sepolia-28a0f0.svg">
   <img alt="npm version" src="https://img.shields.io/npm/v/@kleros/kleros-disputant-cli.svg">
 </p>
