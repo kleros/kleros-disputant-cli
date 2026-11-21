@@ -427,7 +427,7 @@ test**, and `[fork]` is what a claim becomes once one has settled
 it. `[live]` claims are stamped with a date and a block; re-run
 [`docs/spec/05-verification.md`](docs/spec/05-verification.md) §4 to refresh them.
 
-Sibling repos, for orientation: [`kleros-juror-cli`](https://github.com/kleros/kleros-juror-cli) is
+Sibling repos, for orientation: [`@kleros/juror-cli`](https://github.com/kleros/juror-cli) is
 the other half of the write plane and the source of this architecture;
 [`@kleros/agentkit`](https://github.com/kleros/agentkit) is the read plane and a peer CLI the same
 agent calls.
